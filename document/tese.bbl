@@ -1,9 +1,22 @@
 \begin{thebibliography}{1}
 
+\bibitem{guardian}
+Michael~Zev Gordon.
+\newblock Symphony of life: making music out of the human genome.
+\newblock {\em The Guardian}, 2010.
+
+\bibitem{algoart}
+Algorithmic arts.
+
 \bibitem{biodurbin}
 A.~Krogh R.~Durbin, S.~Eddy and G.~Mitchison.
 \newblock {\em Biological sequence analysis: Probabilistic models of proteins
   and nucleic acids}.
 \newblock Cambridge University Press, 1998.
+
+\bibitem{cyberbio}
+Clare Sansom.
+\newblock Dna makes protein - makes music?
+\newblock {\em Cyberbiochemist}, 2002.
 
 \end{thebibliography}
