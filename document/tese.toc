@@ -45,3 +45,4 @@
 \contentsline {subsection}{\numberline {5.2.4}Auditive comparison}{7}{subsection.5.2.4}
 \contentsline {chapter}{\numberline {6}Results}{8}{chapter.6}
 \contentsline {chapter}{\numberline {7}Conclusions}{9}{chapter.7}
+\contentsline {chapter}{Bibliography}{11}{section.7.1}

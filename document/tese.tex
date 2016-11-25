@@ -16,6 +16,7 @@
 \usepackage{amsmath}
 \usepackage{amssymb}
 \usepackage{xspace}% used by \sigla
+\usepackage{cite}
 
 % optional (comment to use default)s
 %   depth of the table of contents
@@ -171,7 +172,7 @@ E mais coisas que ainda nao escrevi....
 \section{Interdisciplinary concepts: Biology}
 \subsection{Basic notions}
 \subsection{Multiple Sequence Alignment}
-One of the major tasks in this work is to find homologous sequences so we can use them to map music in a coherent way. By homologous, we mean as having structural and evolutionary resemblance - a shared ancestry between them. \cite[chapter, p.~215]{bio} Such techniques for estimating homologous regions are called alignments. More specifically, the global alignment of such two sequences is called a pairwise alignment. But in this work we intent to find homologous regions between large sets of mitochondrial DNA sequences. In this case, our goal is to perform multiple sequence alignment methods (MSA, as we will refer to them in descriptions, from this chapter on).\\
+One of the major tasks in this work is to find homologous sequences so we can use them to map music in a coherent way. By homologous, we mean as having structural and evolutionary resemblance - a shared ancestry between them. \cite[chapter, p.~215]{biodurbin} Such techniques for estimating homologous regions are called alignments. More specifically, the global alignment of such two sequences is called a pairwise alignment. But in this work we intent to find homologous regions between large sets of mitochondrial DNA sequences. In this case, our goal is to perform multiple sequence alignment methods (MSA, as we will refer to them in descriptions, from this chapter on).\\
 The analysis of these methods is highly complex as their correctness depends on the relatedness of our set of sequences. Alignment techniques must always keep in mind two key features: the fact that some positions (in the alignment) are more conserved than others, e.g. position-specific scoring; and the fact that the sequences are not independent, but instead are related by a phylogenetic tree (which we will explore more ahead) (R. Durbin et al.). MSA algorithms usually include indels (or ``gaps'', as they are commonly known). Such gaps are relative to insertion or deletion events that are represented between characters in an alignment column.\\
 There are 4 main types of MSA methods:
 \begin{enumerate}
@@ -237,15 +238,15 @@ This process can have several performance issues: it demans the computation of t
 % The bibliography
 %
 \cleardoublepage
-\iffalse
+%\iffalse
   % Use this is the final version
   %  unsrt produces numbered entries, sorted by order of citation
   %  plain produces numbered entries, sorted alphabetically
   %  other styles are possible (I recommend the harvard package)
   %\bibliographystyle{unsrt}
   \bibliographystyle{plain}
-  \bibliography{thesis.bib}% replace by the name of name of your .bib file
-\else
+  \bibliography{tese.bib}% replace by the name of name of your .bib file
+%\else
   % An example (the contents of the .bbl file)
 %  \begin{thebibliography}{10}
 
@@ -260,7 +261,8 @@ This process can have several performance issues: it demans the computation of t
 %  \newblock {\em Proceedings of the American Mathematical Society}, 82(1):19--22,
 %    May 1981.
 %  \end{thebibliography}
-\fi
+%\fi
 \cleardoublepage
+
 
 \end{document}
