@@ -1,0 +1,1 @@
+MAFFT: first 7 seqs: 6.3 secs

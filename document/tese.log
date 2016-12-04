@@ -1,8 +1,8 @@
-This is pdfTeX, Version 3.14159265-2.6-1.40.16 (TeX Live 2016/dev) (preloaded format=pdflatex 2016.11.21)  25 NOV 2016 06:01
+This is pdfTeX, Version 3.14159265-2.6-1.40.16 (TeX Live 2016/dev) (preloaded format=pdflatex 2016.11.21)  3 DEC 2016 17:50
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
-**tese
+**tese.tex
 (./tese.tex
 LaTeX2e <2015/01/01> patch level 2
 Babel <3.9m> and hyphenation patterns for 2 languages loaded.
@@ -65,15 +65,8 @@ Package: color 2014/10/28 v1.1a Standard LaTeX Color (DPC)
 File: color.cfg 2007/01/18 v1.5 color configuration of teTeX/TeXLive
 )
 Package color Info: Driver file: pdftex.def on input line 142.
-)
-
-! LaTeX Error: File `a4wide.sty' not found.
-
-Type X to quit or <RETURN> to proceed,
-or enter new name. (Default extension: sty)
-
-Enter file name: 
-) (/usr/share/texlive/texmf-dist/tex/latex/base/inputenc.sty
+))
+(/usr/share/texlive/texmf-dist/tex/latex/base/inputenc.sty
 Package: inputenc 2015/03/17 v1.2c Input encoding file
 \inpenc@prehook=\toks15
 \inpenc@posthook=\toks16
@@ -697,6 +690,17 @@ l.135 \titlepage\ \endtitlepage
 
 ]
 Chapter 1.
+
+Underfull \hbox (badness 10000) in paragraph at lines 157--159
+
+ []
+
+
+Overfull \hbox (1.6925pt too wide) in paragraph at lines 164--166
+ []\OT1/cmr/bx/n/10.95 We can es-tab-lish a strong re-sem-blance be-tween the \
+OT1/cmr/bx/it/10.95 modus operandi|
+ []
+
 pdfTeX warning (ext4): destination with the same identifier (name{page.1}) has 
 been already used, duplicate ignored
 <to be read again> 
@@ -705,7 +709,7 @@ l.166
        [1
 
 ] [2]
-Underfull \vbox (badness 10000) has occurred while \output is active []
+Underfull \vbox (badness 7504) has occurred while \output is active []
 
  [3]
 [4]
@@ -744,30 +748,31 @@ Package atveryend Info: Empty hook `AfterLastShipout' on input line 268.
 Package atveryend Info: Executing hook `AtVeryEndDocument' on input line 268.
 Package atveryend Info: Executing hook `AtEndAfterFileList' on input line 268.
 Package rerunfilecheck Info: File `tese.out' has not changed.
-(rerunfilecheck)             Checksum: 6790DE6BDBE1CFE30F11F568331ABC07;3209.
+(rerunfilecheck)             Checksum: 41028EEDA86C9312ADD22210C3DDEDF9;3209.
 Package atveryend Info: Empty hook `AtVeryVeryEnd' on input line 268.
  ) 
 Here is how much of TeX's memory you used:
- 6913 strings out of 495003
- 96824 string characters out of 6181404
- 186631 words of memory out of 5000000
- 9963 multiletter control sequences out of 15000+600000
- 13469 words of font info for 49 fonts, out of 8000000 for 9000
+ 6912 strings out of 495003
+ 96812 string characters out of 6181404
+ 187629 words of memory out of 5000000
+ 9960 multiletter control sequences out of 15000+600000
+ 13828 words of font info for 50 fonts, out of 8000000 for 9000
  14 hyphenation exceptions out of 8191
- 34i,10n,30p,1225b,458s stack positions out of 5000i,500n,10000p,200000b,80000s
+ 34i,10n,30p,1227b,458s stack positions out of 5000i,500n,10000p,200000b,80000s
 </usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx10.pfb></us
 r/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx12.pfb></usr/shar
-e/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi10.pfb></usr/share/texl
-ive/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi8.pfb></usr/share/texlive/tex
-mf-dist/fonts/type1/public/amsfonts/cm/cmr10.pfb></usr/share/texlive/texmf-dist
-/fonts/type1/public/amsfonts/cm/cmss10.pfb></usr/share/texlive/texmf-dist/fonts
-/type1/public/amsfonts/cm/cmssbx10.pfb></usr/share/texlive/texmf-dist/fonts/typ
-e1/public/amsfonts/cm/cmsy10.pfb></usr/share/texlive/texmf-dist/fonts/type1/pub
-lic/amsfonts/cm/cmti10.pfb>
-Output written on tese.pdf (32 pages, 145501 bytes).
+e/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmbxti10.pfb></usr/share/te
+xlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi10.pfb></usr/share/texlive/
+texmf-dist/fonts/type1/public/amsfonts/cm/cmmi8.pfb></usr/share/texlive/texmf-d
+ist/fonts/type1/public/amsfonts/cm/cmr10.pfb></usr/share/texlive/texmf-dist/fon
+ts/type1/public/amsfonts/cm/cmss10.pfb></usr/share/texlive/texmf-dist/fonts/typ
+e1/public/amsfonts/cm/cmssbx10.pfb></usr/share/texlive/texmf-dist/fonts/type1/p
+ublic/amsfonts/cm/cmsy10.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/
+amsfonts/cm/cmti10.pfb>
+Output written on tese.pdf (32 pages, 159487 bytes).
 PDF statistics:
- 440 PDF objects out of 1000 (max. 8388607)
- 392 compressed objects within 4 object streams
- 78 named destinations out of 1000 (max. 500000)
+ 447 PDF objects out of 1000 (max. 8388607)
+ 398 compressed objects within 4 object streams
+ 80 named destinations out of 1000 (max. 500000)
  382 words of extra memory for PDF output out of 10000 (max. 10000000)
 

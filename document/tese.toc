@@ -3,7 +3,9 @@
 \contentsline {chapter}{List of Figures}{iii}{section.0.2}
 \contentsline {chapter}{List of Tables}{v}{section.0.3}
 \contentsline {chapter}{\numberline {1}Introduction}{1}{chapter.1}
+\contentsline {paragraph}{}{1}{section*.4}
 \contentsline {section}{\numberline {1.1}Motivation}{1}{section.1.1}
+\contentsline {paragraph}{We can establish a strong resemblance between the \textit {modus operandi} of the DNA single-lettered code and sequences of musical notes. As Clare Sansom exposed in \textit {The Biochemist}\cite {cyberbio}, we can express the gene with any of the four letters A,C,G and T (we will deepen these molecular biology concepts in 1.3.), which can code each protein assembled by genetic information. However, if we only know the letters of the sequence we don't really have relevant information to infer the structure of a protein. Very much like in the context of a musical tune, we can know the \textbf {sequences} of notes but that's not the only information required to infer the rhythm nor the dynamics (we will also explore these musical concepts on 1.4.). }{2}{section*.5}
 \contentsline {section}{\numberline {1.2}Genomic music}{2}{section.1.2}
 \contentsline {subsection}{\numberline {1.2.1}Scientific background}{2}{subsection.1.2.1}
 \contentsline {subsection}{\numberline {1.2.2}Existing projects}{2}{subsection.1.2.2}
@@ -12,9 +14,9 @@
 \contentsline {subsection}{\numberline {1.3.1}Basic notions}{2}{subsection.1.3.1}
 \contentsline {subsection}{\numberline {1.3.2}Multiple Sequence Alignment}{2}{subsection.1.3.2}
 \contentsline {subsection}{\numberline {1.3.3}Phylogenetics}{4}{subsection.1.3.3}
-\contentsline {subsubsection}{Distance matrices}{4}{section*.4}
-\contentsline {subsubsection}{Parsimony}{4}{section*.5}
-\contentsline {subsubsection}{Bayesian inference??}{4}{section*.6}
+\contentsline {subsubsection}{Distance matrices}{4}{section*.6}
+\contentsline {subsubsection}{Parsimony}{4}{section*.7}
+\contentsline {subsubsection}{Bayesian inference??}{4}{section*.8}
 \contentsline {section}{\numberline {1.4}Interdisciplinary concepts: Music}{4}{section.1.4}
 \contentsline {subsection}{\numberline {1.4.1}Basic notions}{4}{subsection.1.4.1}
 \contentsline {subsection}{\numberline {1.4.2}Dynamics}{4}{subsection.1.4.2}
