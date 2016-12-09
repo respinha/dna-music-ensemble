@@ -1,7 +1,0 @@
-MAFFT: first 3 seqs: 0.59 secs
-MAFFT: first 7 seqs: 6.3 secs
-
-MUSCLE: first 3 seqs: 3.7 secs
-
-CLUSTALW2: first 3 seqs: 1.29 secs
-CLUSTALW2: first 7 seqs: 6.71403566599

@@ -1,4 +1,8 @@
 #Created by https://www.gitignore.io/api/latex
+## IDEA ##
+coding/*.iml
+coding/.idea/
+coding/.idea/*
 ## ALIGNMENTS ##
 */*.aln
 */*.dnd
@@ -9,3 +13,4 @@
 */source_sequences/*
 */example/
 */example/*
+coding/*.txt
