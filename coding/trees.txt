@@ -1,0 +1,15 @@
+Tree(rooted=False, weight=1.0)
+    Clade()
+        Clade(branch_length=0.00795)
+            Clade(branch_length=0.10956, name='gi|254054989|ref|NC_012975.1|')
+            Clade(branch_length=0.10168, name='gi|254055003|ref|NC_012976.1|')
+        Clade(branch_length=0.128, name='gi|254055017|ref|NC_012979.1|')
+        Clade(branch_length=0.69658, name='gi|312233108|ref|NC_014671.1|')
+  _______ gi|254054989|ref|NC_012975.1|
+ |
+ |______ gi|254055003|ref|NC_012976.1|
+_|
+ |_______ gi|254055017|ref|NC_012979.1|
+ |
+ |_______________________________________________ gi|312233108|ref|NC_014671.1|
+

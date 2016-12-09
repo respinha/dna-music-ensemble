@@ -1,0 +1,93 @@
+Done short 3
+clustalw2 with 3sequences: 1.3866566817
+Now writing...
+
+/usr/local/bin/muscle3.8.31_i86linux64 with 3sequences: 4.43477333387
+Now writing...
+
+/usr/local/bin/mafft --clustalout source_sequences/short_version3.fna
+/usr/local/bin/mafft with 3sequences: 0.602547434966
+Now writing...
+
+Done short 4
+clustalw2 with 4sequences: 2.03663658301
+Now writing...
+
+/usr/local/bin/muscle3.8.31_i86linux64 with 4sequences: 8.34484695196
+Now writing...
+
+/usr/local/bin/mafft --clustalout source_sequences/short_version4.fna
+/usr/local/bin/mafft with 4sequences: 0.542074131966
+Now writing...
+
+Done short 5
+clustalw2 with 5sequences: 2.68302278519
+Now writing...
+
+/usr/local/bin/muscle3.8.31_i86linux64 with 5sequences: 9.09427845081
+Now writing...
+
+/usr/local/bin/mafft --clustalout source_sequences/short_version5.fna
+/usr/local/bin/mafft with 5sequences: 0.723007734617
+Now writing...
+
+Done short 6
+clustalw2 with 6sequences: 6.96457551718
+Now writing...
+
+Error aligning with /usr/local/bin/muscle3.8.31_i86linux64 in iteration 6
+
+/usr/local/bin/mafft --clustalout source_sequences/short_version6.fna
+/usr/local/bin/mafft with 6sequences: 6.39491333564
+Now writing...
+
+Done short 7
+clustalw2 with 7sequences: 7.61120783091
+Now writing...
+
+Error aligning with /usr/local/bin/muscle3.8.31_i86linux64 in iteration 7
+
+/usr/local/bin/mafft --clustalout source_sequences/short_version7.fna
+/usr/local/bin/mafft with 7sequences: 6.53992311557
+Now writing...
+
+Done short 8
+clustalw2 with 8sequences: 8.67155651649
+Now writing...
+
+Error aligning with /usr/local/bin/muscle3.8.31_i86linux64 in iteration 8
+
+/usr/local/bin/mafft --clustalout source_sequences/short_version8.fna
+/usr/local/bin/mafft with 8sequences: 7.03429058393
+Now writing...
+
+Done short 9
+clustalw2 with 9sequences: 10.1842124144
+Now writing...
+
+Error aligning with /usr/local/bin/muscle3.8.31_i86linux64 in iteration 9
+
+/usr/local/bin/mafft --clustalout source_sequences/short_version9.fna
+/usr/local/bin/mafft with 9sequences: 6.89068976641
+Now writing...
+
+Done short 10
+clustalw2 with 10sequences: 11.2833539804
+Now writing...
+
+Error aligning with /usr/local/bin/muscle3.8.31_i86linux64 in iteration 10
+
+/usr/local/bin/mafft --clustalout source_sequences/short_version10.fna
+/usr/local/bin/mafft with 10sequences: 7.67451256911
+Now writing...
+
+Done short 11
+clustalw2 with 11sequences: 10.1465172331
+Now writing...
+
+Error aligning with /usr/local/bin/muscle3.8.31_i86linux64 in iteration 11
+
+/usr/local/bin/mafft --clustalout source_sequences/short_version11.fna
+/usr/local/bin/mafft with 11sequences: 6.89044508537
+Now writing...
+
