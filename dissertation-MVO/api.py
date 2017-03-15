@@ -16,8 +16,16 @@ from Bio import Cluster
 import numpy as np
 
 import os
+import sys
 
 from Bio.Phylo.TreeConstruction import DistanceCalculator
+from scipy.cluster.hierarchy import dendrogram, linkage
+from scipy.cluster.hierarchy import fcluster
+
+from matplotlib import pyplot as plt
+
+from music21 import note, scale, instrument, stream
+from music21 import Music21Object
 
 default_mapping = 'default'
 
@@ -30,7 +38,9 @@ aln = lambda n: SEQ_DIR + '/mafft_' + str(n) + '.fasta'
 GLOBALS = {'MEME_URL' : 'http://meme-suite.org/opal2/services/MEME_4.11.2',
            'SEQUENCES' :  SEQ_DIR + '/mitochondrion.1.1.genomic.fna',
            'SUPPORTED ALGORITHMS' : ['clustal', 'mafft', 'muscle'],
-           'VALID_MAPPING' : [default_mapping]}
+           'VALID_MAPPING' : [default_mapping],
+           'ALPHABET' : ['A', 'C', 'G', 'T', '-']}
+
 
 def find_homologous_regions(alignment_file):
     alignment = AlignIO.read(alignment_file, 'clustal')
@@ -54,9 +64,6 @@ def find_homologous_regions(alignment_file):
 def read_phylo_tree(sequence_file):
     tree = Phylo.read(sequence_file.split('.')[0] + '.dnd', 'newkick')
     Phylo.draw_ascii(tree)
-
-
-import sys
 
 
 # returns array of possible motifs
@@ -93,11 +100,10 @@ def gen_motifs(fasta_file, **args):
             record = motifs.parse(meme_file, 'meme')
             return record
 
+
 # aux function
 # creates a generator from an iterable (for example, another generator)
 # from the original iterable's first n elements
-
-
 def generator_from_iterable(iterable, n):
 
     i = 0
@@ -105,6 +111,7 @@ def generator_from_iterable(iterable, n):
         if i < n:
             yield r
         else: break
+        i += 1
 
 
 # generates a MSA from a file with a set of sequences
@@ -133,6 +140,7 @@ def gen_alignment(seq_vector=None, n_sequences=None, algorithm='clustal'):
 
     SeqIO.write(sequences, seq_file, 'fasta')
 
+
     try:
         t0 = time.time()
         if algorithm == 'clustal':
@@ -148,7 +156,7 @@ def gen_alignment(seq_vector=None, n_sequences=None, algorithm='clustal'):
         elif algorithm == 'mafft':
             algorithm = r"/usr/local/bin/mafft"
             cline = MafftCommandline(algorithm,
-                                     input=r"source_sequences/short_version" + str(n_sequences) + r".fna",
+                                     input=seq_file,
                                      clustalout=True)
 
             print cline
@@ -160,14 +168,12 @@ def gen_alignment(seq_vector=None, n_sequences=None, algorithm='clustal'):
             dst_name = 'source_sequences/mafft_' + str(n_sequences) + '.fasta'
             with open(dst_name, "w") as handle:
                 handle.write(stdout)
-            return 0
         else:
             print 'Unknown algorithm\n'
-            return -1
 
-        stdout, stderr = cline()
-        print 'Elapsed time: ' + str((time.time() - t0) / 60)
-        print 'Now writing...\n'
+        #stdout, stderr = cline()
+        #print 'Elapsed time: ' + str((time.time() - t0) / 60)
+        #print 'Now writing...\n'
 
     except:
         print 'Error aligning with ' + algorithm
@@ -188,7 +194,7 @@ def get_distance_matrix(msa):
 
 
 # clusters all sequences in a MSA
-def get_clusters_from_alignment(msa, depth):
+def get_clusters_from_alignment(msa, depth, save_dendrogram=False):
     assert msa is not None and isinstance(msa, MultipleSeqAlignment)
     assert isinstance(depth, int) and depth > 0
 
@@ -197,15 +203,26 @@ def get_clusters_from_alignment(msa, depth):
     if dm is not None:
 
         print 'Retrieving cluster tree'
-        tree = Cluster.treecluster(distancematrix=dm)
-        tree.scale()
-        #print tree
+        #tree = Cluster.treecluster(distancematrix=dm)
+        #tree.scale()
 
-        clusters = tree.cut(3)
-        print clusters
+        Z = linkage(dm)
 
-        clusters = tree.cut(depth * 3)
+        if save_dendrogram:
+            plt.title('Hierarchical Clustering Dendrogram')
+            plt.xlabel('sample index')
+            plt.ylabel('distance')
 
+            dendrogram(
+                Z,
+                leaf_rotation=90.,  # rotates the x axis labels
+                leaf_font_size=8.,  # font size for the x axis labels
+            )
+            plt.savefig('dendogram.png')
+
+        max_d = 0.01 # TODO: make this dynamic
+
+        clusters = fcluster(Z, max_d, criterion='distance')
         print clusters
 
         return clusters
@@ -236,8 +253,136 @@ def msa_to_phylip(msa):
 
     return out_file
 
+
+# returns a tuple containing:
+#   - a word distance vector per word (A,C,G,T)
+#   - a label array with the assigned duration of each nucleotide
+def numeric_vectors(sequence, window=5, step=1):
+
+    vectors = dict()  # keys are nucleotides; values are np arrays
+
+    alphabet = GLOBALS['ALPHABET']
+    durations = {0.25: 'eighth', 0.5: 'quarter', 0.75: 'half', 1.0: 'whole'}
+
+    last_occurrence = dict()
+    frequencies = []
+
+    length = len(sequence)
+    for i in range(0, length, window):
+
+        if i + window <= len(sequence):
+            threshold = i + window
+        else:
+            threshold = len(sequence)
+
+        subset = sequence[i:threshold]
+
+        # grouping frequencies of A,C,G,T  within a window
+        distributions = {l: float(len(filter(lambda y: y == l, subset))) / window for l in alphabet}
+
+        for j in range(i, threshold):
+
+            # distances
+            letter = sequence[j]
+
+            if letter not in vectors.keys():
+
+                # vectors[letter] = np.zeros(shape=(length))
+                vectors[letter] = []
+            else:
+                diff = j - last_occurrence[letter]
+                vectors[letter].append(diff)
+
+            last_occurrence[letter] = j
+
+            #########
+
+            dist = distributions[subset[j - i]]
+
+            duration = 'eighth'
+            keys = durations.keys()
+
+            for k in keys:
+
+                #print str(k) + ', ' + str(dist)
+                if k > dist:
+                    duration = durations[k]
+                    break
+
+            frequencies.append(duration)
+
+    frequencies = np.array(frequencies)
+
+    for x, y in vectors.iteritems():
+        diff = length - last_occurrence[x]
+        vectors[x].append(diff)
+
+    for x in vectors.keys():
+        vectors[x] = np.array(vectors[x])
+
+    # (distances, frequencies per N words)
+
+    print vectors, frequencies
+    return vectors, frequencies
+
+
+
+def gen_stream(score, sequence):
+
+    dv = distance_vectors(sequence)
+
+    print dv
+
+    for x in dv.keys():
+        dv[x] = iter(dv[x])
+
+    scale_len = len(scale.MajorScale().getPitches())
+    s = scale.MajorScale()
+
+    part = stream.Part()
+    part.insert(0, instrument.Violin())
+
+    print sequence
+
+    for l in sequence:
+
+        if l is not '-':
+
+            n = dv[l].next() % scale_len
+            n = s.getPitches()[n]
+
+            n = note.Note(n)
+
+        else:
+
+            n = note.Rest()
+
+        assert isinstance(n, Music21Object)
+
+        part.append(n)
+
+    score.insert(0, part)
+
+
 def main():
-    pass
+
+    if len(sys.argv) > 1:
+        if sys.argv[1] == 'align':
+            gen_alignment(n_sequences=2, algorithm='mafft')
+
+    else:
+        alignment = AlignIO.read(open(SEQ_DIR + "/mafft_2.fasta"), 'clustal')
+        score = stream.Score()
+
+        for record in alignment:
+            gen_stream(score, record.seq[:70])
+
+        score.show(app='/usr/bin/mscore')
+        score.write('midi',fp=CURR_DIR + '/alignment.mid')
+
 
 if __name__ == "__main__":
-    main()
+
+    #main()
+    print numeric_vectors(['A','C','T','G', 'G','T','A','G','T','A','C','C','T','A','G'])
+    #print word_frequences(['A','C','T','G', 'G','T','A','G','T','A','C','C','T','A','G'])

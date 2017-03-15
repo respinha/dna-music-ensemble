@@ -54,7 +54,6 @@ class Orchestra(object):
 
         self._alignment = alignment
 
-
         clusters = cluster_alignment(alignment)
 
         for c in clusters:
@@ -191,7 +190,6 @@ class MusicDNAMapping(object):
                 else:
                     diff = i - last_occurrence[letter]
                     vectors[letter].append(diff)
-                     #vectors[letter][]
 
                 last_occurrence[letter] = i
 

@@ -4,41 +4,44 @@ from Bio.Phylo.TreeConstruction import DistanceCalculator
 from matplotlib import pyplot as plt
 
 from scipy.cluster.hierarchy import dendrogram, linkage
-from scipy.cluster.hierarchy import cophenet
 from scipy.cluster.hierarchy import fcluster
+from scipy.cluster.hierarchy import cophenet
 
-from scipy.spatial.distance import pdist
+
+from scipy.spatial.distance import pdist, squareform
 
 import numpy as np
 
 np.set_printoptions(precision=5, suppress=True)  # suppress scientific float notation
 
-aln = AlignIO.read(open('source_sequences/clustal_7.aln', 'rU'), 'clustal')
+aln = AlignIO.read(open('source_sequences/clustal_11.aln', 'rU'), 'clustal')
 
 calculator = DistanceCalculator('identity')
 distance_matrix = calculator.get_distance(aln)
 X = np.matrix([row for row in distance_matrix])
 
 Z = linkage(X)
-
 print Z
 
-print '##################################'
-Z = linkage(X, 'ward')
+#c, coph = cophenet(Z, squareform(X))
+#print c,coph
 
-print Z
-#max_d = 4
-#clusters = fcluster(Z, max_d, criterion='distance')
-#print clusters
 
-#plt.figure(figsize=(10, 8))
-#for i in range(0,X.shape[1]-1):
+# calculate full dendrogram
+plt.figure(figsize=(25, 10))
+plt.title('Hierarchical Clustering Dendrogram')
+plt.xlabel('sample index')
+plt.ylabel('distance')
 
-#    plt.scatter(X[:,i], X[:,i+1], c=clusters, cmap='prism')
+dendrogram(
+    Z,
+    leaf_rotation=90.,  # rotates the x axis labels
+    leaf_font_size=8.,  # font size for the x axis labels
+)
+#plt.savefig('dendogram.png')
+plt.show()
 
-#plt.show()
 
-#c, coph = cophenet(Z, pdist(X))
-#print c
-#print coph
-
+max_d = 0.2
+clusters = fcluster(Z, max_d, criterion='distance')
+print clusters
