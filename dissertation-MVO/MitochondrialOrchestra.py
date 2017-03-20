@@ -107,6 +107,7 @@ class Orchestra(object):
 class InstrumentFamily(object):
     pass
 
+
 class MusicDNAMapping(object):
 
     def __init__(self, mapping=default_mapping):

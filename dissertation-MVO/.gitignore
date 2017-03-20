@@ -54,4 +54,7 @@ source_sequences/
 source_sequences/*
 
 test_music.py
+*.png
+*.xml
+*.mid
 

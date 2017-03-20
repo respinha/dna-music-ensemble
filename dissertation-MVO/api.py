@@ -11,12 +11,14 @@ from Bio.Align.Applications import ClustalwCommandline
 from Bio.Align.Applications import MafftCommandline
 from Bio.Align.Applications import MuscleCommandline
 
-from Bio import Cluster
+from scipy.cluster.hierarchy import dendrogram, linkage
+from scipy.cluster.hierarchy import fcluster
 
 import numpy as np
 
 import os
 import sys
+import random
 
 from Bio.Phylo.TreeConstruction import DistanceCalculator
 from scipy.cluster.hierarchy import dendrogram, linkage
@@ -24,8 +26,10 @@ from scipy.cluster.hierarchy import fcluster
 
 from matplotlib import pyplot as plt
 
-from music21 import note, scale, instrument, stream
+from music21 import note, scale, instrument, stream, duration
+from music21.instrument import StringInstrument, WoodwindInstrument, BrassInstrument, Percussion
 from music21 import Music21Object
+from music21 import midi
 
 default_mapping = 'default'
 
@@ -39,12 +43,15 @@ GLOBALS = {'MEME_URL' : 'http://meme-suite.org/opal2/services/MEME_4.11.2',
            'SEQUENCES' :  SEQ_DIR + '/mitochondrion.1.1.genomic.fna',
            'SUPPORTED ALGORITHMS' : ['clustal', 'mafft', 'muscle'],
            'VALID_MAPPING' : [default_mapping],
-           'ALPHABET' : ['A', 'C', 'G', 'T', '-']}
+           'ALPHABET' : ['a', 'c', 'g', 't', '-'],
+           'MUSE_SCORE' :   '/usr/bin/mscore',
+           'FAMILIES' : {0: StringInstrument, 1: WoodwindInstrument,
+                                  2: BrassInstrument, 3: Percussion},
+           }
 
 
 def find_homologous_regions(alignment_file):
     alignment = AlignIO.read(alignment_file, 'clustal')
-
 
     summ = AlignInfo.SummaryInfo(alignment)
     expect_freq = {'A': .25, 'G': .25, 'T': .25, 'C': .25}
@@ -133,13 +140,19 @@ def gen_alignment(seq_vector=None, n_sequences=None, algorithm='clustal'):
 
     seq_file = 'pre_alignment.fna'
 
+    sequences = []
     if seq_vector is not None:
         sequences = (r for r in iterable if r.description.split('|')[-1] in seq_vector)
     else:
         sequences = generator_from_iterable(iterable, n_sequences)
 
-    SeqIO.write(sequences, seq_file, 'fasta')
+    sequences = [x for x in sequences]
+    if len(sequences) == 0:
+        print 'No sequences were found'
+        sys.exit(0)
 
+    print sequences
+    SeqIO.write(sequences, seq_file, 'fasta')
 
     try:
         t0 = time.time()
@@ -149,37 +162,42 @@ def gen_alignment(seq_vector=None, n_sequences=None, algorithm='clustal'):
                                         infile=seq_file,
                                         outfile='source_sequences/clustal_' + str(n_sequences) + '.aln')
         elif algorithm == 'muscle':
-            algorithm = r"/usr/local/bin/muscle3.8.31_i86linux64"
-            cline = MuscleCommandline(algorithm, input=seq_file,
+            alg = r"/usr/local/bin/muscle3.8.31_i86linux64"
+            cline = MuscleCommandline(alg, input=seq_file,
                                       out='source_sequences/muscle_' + str(n_sequences) + '.fna',
                                       clwstrict=True)
         elif algorithm == 'mafft':
-            algorithm = r"/usr/local/bin/mafft"
-            cline = MafftCommandline(algorithm,
+
+            print seq_file
+            alg = r"/usr/local/bin/mafft"
+            cline = MafftCommandline(alg,
                                      input=seq_file,
                                      clustalout=True)
-
-            print cline
-            stdout, stderr = cline()
-
-            print 'Elapsed time: ' + str((time.time() - t0) / 60)
-            print 'Now writing...\n'
-
-            dst_name = 'source_sequences/mafft_' + str(n_sequences) + '.fasta'
-            with open(dst_name, "w") as handle:
-                handle.write(stdout)
         else:
             print 'Unknown algorithm\n'
+            sys.exit(0)
 
-        #stdout, stderr = cline()
-        #print 'Elapsed time: ' + str((time.time() - t0) / 60)
-        #print 'Now writing...\n'
+        stdout, stderr = cline()
+        print cline
+
+        print 'Elapsed time: ' + str((time.time() - t0) / 60)
+        print 'Now writing...\n'
+
+        if n_sequences is None:
+            rnd = random.sample(range(1,9), 6)
+            dst_name = SEQ_DIR + '/' + algorithm + '_' + ''.join(str(x) for x in rnd) + '.fasta'
+        else:
+            dst_name = SEQ_DIR + '/' + algorithm + '_' + str(n_sequences) + '.fasta'
+
+        print dst_name
+        with open(dst_name, "w") as handle:
+            handle.write(stdout)
 
     except:
         print 'Error aligning with ' + algorithm
 
-    if os.path.isfile(seq_file):
-        os.unlink(seq_file)
+    #if os.path.isfile(seq_file):
+    #    os.unlink(seq_file)
 
 
 # retrieves a distance matrix from:
@@ -203,8 +221,6 @@ def get_clusters_from_alignment(msa, depth, save_dendrogram=False):
     if dm is not None:
 
         print 'Retrieving cluster tree'
-        #tree = Cluster.treecluster(distancematrix=dm)
-        #tree.scale()
 
         Z = linkage(dm)
 
@@ -231,15 +247,39 @@ def get_clusters_from_alignment(msa, depth, save_dendrogram=False):
 
 
 # clusters all sequences in a MSA file
-def cluster_alignment(aln_file, depth=1):
-    print 'Converting from clustal format to phylip...'
+def cluster_alignment(alignment, depth=1):
 
-    aln_file = msa_to_phylip(aln_file)
-
-    print 'Opening phylip file...'
-    alignment = AlignIO.read(open(aln_file, 'rU'), 'phylip-relaxed')
+    assert isinstance(alignment, MultipleSeqAlignment)
 
     print 'Retrieving clusters...'
+
+    clusters = get_clusters_from_alignment(alignment, depth)
+
+    n_clusters = max(clusters)
+    if n_clusters <= 4:
+
+        # numpy array containing pointers to each instrument family
+        # and the respectively assigned instrument
+        sequence_instruments = np.zeros(len(clusters), dtype=('uint8,uint8'))
+
+        import random
+
+        for i in range(0, len(clusters)):
+
+            idx = clusters[i]
+            family = GLOBALS['FAMILIES'][idx]
+            print family
+
+            try:
+                instruments = family.__subclasses__()
+            except TypeError:
+                instruments = family.__subclasses__(family)
+
+            rnd = random.randint(0, len(instruments) - 1)
+            print instruments[rnd]  # TODO: build list of instruments by priorities
+
+            sequence_instruments[i] = (idx, rnd)
+
     return get_clusters_from_alignment(alignment, depth)
 
 
@@ -271,16 +311,16 @@ def numeric_vectors(sequence, window=5, step=1):
     for i in range(0, length, window):
 
         if i + window <= len(sequence):
-            threshold = i + window
+            boundary = i + window
         else:
-            threshold = len(sequence)
+            boundary = len(sequence)
 
-        subset = sequence[i:threshold]
+        subset = sequence[i:boundary]
 
         # grouping frequencies of A,C,G,T  within a window
         distributions = {l: float(len(filter(lambda y: y == l, subset))) / window for l in alphabet}
 
-        for j in range(i, threshold):
+        for j in range(i, boundary):
 
             # distances
             letter = sequence[j]
@@ -299,17 +339,18 @@ def numeric_vectors(sequence, window=5, step=1):
 
             dist = distributions[subset[j - i]]
 
-            duration = 'eighth'
+            local_duration = 'eighth'
             keys = durations.keys()
 
             for k in keys:
 
-                #print str(k) + ', ' + str(dist)
                 if k > dist:
-                    duration = durations[k]
+
+                    local_duration = durations[k]
                     break
 
-            frequencies.append(duration)
+            #print str(dist) + ', ' + str(local_duration)
+            frequencies.append(local_duration)
 
     frequencies = np.array(frequencies)
 
@@ -322,67 +363,134 @@ def numeric_vectors(sequence, window=5, step=1):
 
     # (distances, frequencies per N words)
 
-    print vectors, frequencies
+    #print vectors, frequencies
     return vectors, frequencies
 
 
+def gen_stream(score, sequence, window=5, step=1, assigned_instr=instrument.Violin(),
+               signal_gap=False):
 
-def gen_stream(score, sequence):
-
-    dv = distance_vectors(sequence)
-
-    print dv
+    dv, durations = numeric_vectors(sequence, window=window, step=step)
 
     for x in dv.keys():
+
         dv[x] = iter(dv[x])
+
+    durations = iter(durations)
 
     scale_len = len(scale.MajorScale().getPitches())
     s = scale.MajorScale()
 
     part = stream.Part()
-    part.insert(0, instrument.Violin())
-
-    print sequence
+    part.insert(0, assigned_instr)
 
     for l in sequence:
 
+        pitch = dv[l].next()
+        d = durations.next()
+        print d
+
         if l is not '-':
 
-            n = dv[l].next() % scale_len
+            n = pitch % scale_len
             n = s.getPitches()[n]
-
             n = note.Note(n)
 
+            n.duration = duration.Duration(d)
         else:
 
-            n = note.Rest()
+            if not signal_gap:
+
+                n = note.Rest()
+                n.duration = duration.Duration(d)
+
+            else:
+                n = pitch % scale_len
+                n = s.getPitches()[n]
+                n = note.Note(n)
+                n.octave = 10
+
+                n.duration = duration.Duration(10.0)
+
+        n.addLyric(l)
 
         assert isinstance(n, Music21Object)
-
         part.append(n)
 
     score.insert(0, part)
 
 
-def main():
-
-    if len(sys.argv) > 1:
-        if sys.argv[1] == 'align':
-            gen_alignment(n_sequences=2, algorithm='mafft')
-
-    else:
-        alignment = AlignIO.read(open(SEQ_DIR + "/mafft_2.fasta"), 'clustal')
-        score = stream.Score()
-
-        for record in alignment:
-            gen_stream(score, record.seq[:70])
-
-        score.show(app='/usr/bin/mscore')
-        score.write('midi',fp=CURR_DIR + '/alignment.mid')
-
 
 if __name__ == "__main__":
 
-    #main()
-    print numeric_vectors(['A','C','T','G', 'G','T','A','G','T','A','C','C','T','A','G'])
-    #print word_frequences(['A','C','T','G', 'G','T','A','G','T','A','C','C','T','A','G'])
+    print sys.argv[1]
+
+    FILE_NAME = 'mafft_164358.fasta'
+    print 'Converting from clustal format to phylip...'
+    #aln_file = msa_to_phylip(SEQ_DIR + "/mafft_164358.fasta")
+    aln_file = msa_to_phylip(SEQ_DIR + "/" + FILE_NAME)
+
+    print 'Opening phylip file...'
+    alignment = AlignIO.read(open(SEQ_DIR + "/" + FILE_NAME.split('.')[0] + ".phy"), 'phylip-relaxed')
+
+    # clustering to assign instruments
+    """calculator = DistanceCalculator('identity')
+    distance_matrix = calculator.get_distance(alignment)
+    X = np.matrix([row for row in distance_matrix])
+
+    Z = linkage(X)
+    #print Z
+
+    #  TODO: APPLY METRIC CRITERIA!!!!!!!!!!!!
+    max_d = 0.05
+    clusters = fcluster(Z, max_d, criterion='distance')
+
+    n_clusters = max(clusters)
+
+
+        print sequence_instruments
+        sys.exit(0)
+        # TODO: continue
+    """
+
+    instruments = [instrument.Violin(), instrument.SopranoSaxophone()]
+
+    for window in range(10, 50, 10):
+
+        score = stream.Score()
+        i = 0
+
+        for record in alignment:
+
+            gen_stream(score, record.seq[:400], window=window, assigned_instr=instruments[i], signal_gap=False)
+            i += 1
+            #print score.highestTime
+
+        for part in score.parts:
+            for n in part:
+                print n.duration
+
+        for part in score.parts:
+
+            diff = score.highestTime - part.highestTime
+
+            if diff > 0:
+                while score.highestTime - part.highestTime > 0:
+                    n = note.Rest()
+                    n.duration = duration.Duration(2.0)
+
+                    part.append(n)
+
+        score.write('lily.pdf', fp=CURR_DIR + '/' + sys.argv[1] + str(window))  # + '.pdf')
+        os.unlink(CURR_DIR + '/' + sys.argv[1] + str(window))
+
+        f = midi.MidiFile()
+
+        f = midi.translate.streamToMidiFile(score)
+        f.open(sys.argv[1] + str(window) + '.mid', attrib='wb')
+        f.write()
+        f.close()
+
+        #score.show(app=GLOBALS['MUSE_SCORE'])
+        #score.write('midi', fp=CURR_DIR + '/alignment' + str(window) + '.mid')
+
