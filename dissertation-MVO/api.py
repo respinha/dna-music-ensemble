@@ -35,18 +35,21 @@ default_mapping = 'default'
 
 CURR_DIR = os.path.dirname(os.path.abspath(__file__))
 SEQ_DIR = CURR_DIR + "/source_sequences"
-
+OUTPUT_FILES = CURR_DIR + '/output_files'
 aln = lambda n: SEQ_DIR + '/mafft_' + str(n) + '.fasta'
 
 
 GLOBALS = {'MEME_URL' : 'http://meme-suite.org/opal2/services/MEME_4.11.2',
-           'SEQUENCES' :  SEQ_DIR + '/mitochondrion.1.1.genomic.fna',
            'SUPPORTED ALGORITHMS' : ['clustal', 'mafft', 'muscle'],
            'VALID_MAPPING' : [default_mapping],
            'ALPHABET' : ['a', 'c', 'g', 't', '-'],
            'MUSE_SCORE' :   '/usr/bin/mscore',
            'FAMILIES' : {0: StringInstrument, 1: WoodwindInstrument,
                                   2: BrassInstrument, 3: Percussion},
+           'SCORES' :   OUTPUT_FILES + '/scores',
+           'MIDI' :   OUTPUT_FILES + '/midi',
+           'audio'  :   OUTPUT_FILES + '/audio',
+           'ALIGNMENT_PARAMS' : ['fasta_file', 'seq_vector', 'n_seq', 'algorithm']
            }
 
 
@@ -126,7 +129,11 @@ def generator_from_iterable(iterable, n):
 #   seq_vector: vector specifying subset of sequences by reference
 #   n_sequences: first n sequences of file
 #   MSA algorithm (default: Clustal)
-def gen_alignment(seq_vector=None, n_sequences=None, algorithm='clustal'):
+def gen_alignment(input_file, seq_vector=None, n_sequences=None, algorithm='clustal', output_file='output'):
+
+    assert input_file is not None and os.path.isfile(input_file)
+    assert output_file is not None
+
     assert seq_vector is not None or n_sequences is not None, \
         'Both arguments are None (sequence vector and number of sequences)'
 
@@ -136,11 +143,12 @@ def gen_alignment(seq_vector=None, n_sequences=None, algorithm='clustal'):
     assert algorithm in GLOBALS['SUPPORTED ALGORITHMS'], \
         'Algorithm does not match any of the currently supported MSA algorithms'
 
-    iterable = SeqIO.parse(open(GLOBALS['SEQUENCES'], 'rU'), 'fasta')
+    assert isinstance(input_file, str)
 
-    seq_file = 'pre_alignment.fna'
+    iterable = SeqIO.parse(open(input_file, 'rU'), 'fasta')
 
-    sequences = []
+    tmp_file = 'pre_alignment.fna'
+
     if seq_vector is not None:
         sequences = (r for r in iterable if r.description.split('|')[-1] in seq_vector)
     else:
@@ -152,46 +160,49 @@ def gen_alignment(seq_vector=None, n_sequences=None, algorithm='clustal'):
         sys.exit(0)
 
     print sequences
-    SeqIO.write(sequences, seq_file, 'fasta')
+    SeqIO.write(sequences, tmp_file, 'fasta')
 
     try:
+
         t0 = time.time()
         if algorithm == 'clustal':
+
+            if not output_file.endswith('.aln'):
+                output_file += '.aln'
+
             algorithm = 'clustalw2'
             cline = ClustalwCommandline(algorithm,
-                                        infile=seq_file,
-                                        outfile='source_sequences/clustal_' + str(n_sequences) + '.aln')
+                                        infile=tmp_file,
+                                        outfile=output_file + '.aln')
         elif algorithm == 'muscle':
+
+            if not output_file.endswith('.fna'):
+                output_file += '.fna'
+
             alg = r"/usr/local/bin/muscle3.8.31_i86linux64"
-            cline = MuscleCommandline(alg, input=seq_file,
+            cline = MuscleCommandline(alg, input=tmp_file,
                                       out='source_sequences/muscle_' + str(n_sequences) + '.fna',
                                       clwstrict=True)
         elif algorithm == 'mafft':
 
-            print seq_file
+            if not output_file.endswith('.fasta'):
+                output_file += '.fasta'
+
             alg = r"/usr/local/bin/mafft"
             cline = MafftCommandline(alg,
-                                     input=seq_file,
+                                     input=tmp_file,
                                      clustalout=True)
         else:
             print 'Unknown algorithm\n'
             sys.exit(0)
 
         stdout, stderr = cline()
-        print cline
+
+        if algorithm == 'mafft':
+            with open(output_file, "wb") as handle:
+                handle.write(stdout)
 
         print 'Elapsed time: ' + str((time.time() - t0) / 60)
-        print 'Now writing...\n'
-
-        if n_sequences is None:
-            rnd = random.sample(range(1,9), 6)
-            dst_name = SEQ_DIR + '/' + algorithm + '_' + ''.join(str(x) for x in rnd) + '.fasta'
-        else:
-            dst_name = SEQ_DIR + '/' + algorithm + '_' + str(n_sequences) + '.fasta'
-
-        print dst_name
-        with open(dst_name, "w") as handle:
-            handle.write(stdout)
 
     except:
         print 'Error aligning with ' + algorithm
@@ -420,77 +431,95 @@ def gen_stream(score, sequence, window=5, step=1, assigned_instr=instrument.Viol
     score.insert(0, part)
 
 
+def gen_song(input_alignment=None, alignment_parameters=None, output_midi=None, output_score=None, show_score=None, audio=None, step=10):
 
-if __name__ == "__main__":
+    assert input_alignment is not None ^ alignment_parameters is not None
+    assert output_midi is not None or output_score is not None or show_score is not None
 
-    print sys.argv[1]
+    if input_alignment is not None:
+        print 'Converting from clustal format to phylip...'
+        aln_file = msa_to_phylip(SEQ_DIR + "/" + input_alignment)
+    else:
+        assert isinstance(alignment_parameters, dict)
 
-    FILE_NAME = 'mafft_164358.fasta'
-    print 'Converting from clustal format to phylip...'
-    #aln_file = msa_to_phylip(SEQ_DIR + "/mafft_164358.fasta")
-    aln_file = msa_to_phylip(SEQ_DIR + "/" + FILE_NAME)
+        if 'fasta_file' not in alignment_parameters.keys():
+            print 'Missing input file for alignment'
+            sys.exit(0)
+        seq_file = alignment_parameters['fasta_file']
+
+        if 'algorithm' not in alignment_parameters.keys():
+            print 'Missing alignment algorithm'
+        algorithm = alignment_parameters
+
+        seq_vector, n_seq = None, None
+        if 'seq_vector' not in alignment_parameters.keys():
+            if 'n_seq' not in alignment_parameters.keys():
+                print 'Missing explicit vector of sequences or maximum number of sequences'
+            else:
+                n_seq = alignment_parameters['n_seq']
+        else:
+            seq_vector = alignment_parameters['seq_vector']
+
+        gen_alignment(seq_vector=seq_vector, n_sequences=n_seq, algorithm=algorithm)
+        aln_file = input_alignment
+        pass
+
+    # TODO: insert clustering
+    instruments = [instrument.Violin(), instrument.SopranoSaxophone()]
+    score = stream.Score()
 
     print 'Opening phylip file...'
-    alignment = AlignIO.read(open(SEQ_DIR + "/" + FILE_NAME.split('.')[0] + ".phy"), 'phylip-relaxed')
+    alignment = AlignIO.read(open(SEQ_DIR + "/" + aln_file.split('.')[0] + ".phy"), 'phylip-relaxed')
 
-    # clustering to assign instruments
-    """calculator = DistanceCalculator('identity')
-    distance_matrix = calculator.get_distance(alignment)
-    X = np.matrix([row for row in distance_matrix])
+    i = 0
+    for record in alignment:
+        gen_stream(score, record.seq[:400], window=step, assigned_instr=instruments[i], signal_gap=False)
+        i += 1
+        # print score.highestTime
 
-    Z = linkage(X)
-    #print Z
+    for part in score.parts:
 
-    #  TODO: APPLY METRIC CRITERIA!!!!!!!!!!!!
-    max_d = 0.05
-    clusters = fcluster(Z, max_d, criterion='distance')
+        diff = score.highestTime - part.highestTime
 
-    n_clusters = max(clusters)
+        if diff > 0:
+            while score.highestTime - part.highestTime > 0:
+                n = note.Rest()
+                n.duration = duration.Duration(2.0)
 
+                part.append(n)
 
-        print sequence_instruments
-        sys.exit(0)
-        # TODO: continue
-    """
+    if output_score is not None:
 
-    instruments = [instrument.Violin(), instrument.SopranoSaxophone()]
+        assert isinstance(output_score, str)
 
-    for window in range(10, 50, 10):
+        if not output_score.endswith('.pdf'):
+            output_score = output_score + '_' + str(step) + '.pdf'
 
-        score = stream.Score()
-        i = 0
+        score.write('lily.pdf', fp=GLOBALS['SCORES'] + '/')  # + '.pdf')
+        os.unlink(CURR_DIR + '/' + output_score + '_' + str(step))
 
-        for record in alignment:
+    if output_midi is not None:
 
-            gen_stream(score, record.seq[:400], window=window, assigned_instr=instruments[i], signal_gap=False)
-            i += 1
-            #print score.highestTime
+        assert isinstance(output_midi, str)
 
-        for part in score.parts:
-            for n in part:
-                print n.duration
+        if not output_midi.endswith('.mid'):
+            output_midi = output_midi + '_' + str(step) + '.mid'
 
-        for part in score.parts:
-
-            diff = score.highestTime - part.highestTime
-
-            if diff > 0:
-                while score.highestTime - part.highestTime > 0:
-                    n = note.Rest()
-                    n.duration = duration.Duration(2.0)
-
-                    part.append(n)
-
-        score.write('lily.pdf', fp=CURR_DIR + '/' + sys.argv[1] + str(window))  # + '.pdf')
-        os.unlink(CURR_DIR + '/' + sys.argv[1] + str(window))
+        output_midi = GLOBALS['MIDI'] + '/' + output_midi
 
         f = midi.MidiFile()
-
-        f = midi.translate.streamToMidiFile(score)
-        f.open(sys.argv[1] + str(window) + '.mid', attrib='wb')
+        f.open(output_midi, attrib = 'wb')
         f.write()
         f.close()
 
-        #score.show(app=GLOBALS['MUSE_SCORE'])
-        #score.write('midi', fp=CURR_DIR + '/alignment' + str(window) + '.mid')
+    if show_score is not None:
+        score.show(app=GLOBALS['MUSE_SCORE'])
 
+    if audio is not None:
+        print 'Audio online conversion not implemented'
+
+
+if __name__ == "__main__":
+
+    for window in range(10,50,10):
+        gen_song()
