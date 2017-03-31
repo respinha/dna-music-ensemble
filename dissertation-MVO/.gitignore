@@ -58,3 +58,4 @@ test_music.py
 *.xml
 *.mid
 
+/output_files/

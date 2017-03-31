@@ -1,3 +1,5 @@
+from __future__ import division
+
 import subprocess
 
 import time
@@ -13,6 +15,7 @@ from Bio.Align.Applications import MuscleCommandline
 
 from scipy.cluster.hierarchy import dendrogram, linkage
 from scipy.cluster.hierarchy import fcluster
+from scipy.stats import itemfreq
 
 import numpy as np
 
@@ -31,25 +34,28 @@ from music21.instrument import StringInstrument, WoodwindInstrument, BrassInstru
 from music21 import Music21Object
 from music21 import midi
 
-default_mapping = 'default'
+
 
 CURR_DIR = os.path.dirname(os.path.abspath(__file__))
 SEQ_DIR = CURR_DIR + "/source_sequences"
 OUTPUT_FILES = CURR_DIR + '/output_files'
-aln = lambda n: SEQ_DIR + '/mafft_' + str(n) + '.fasta'
+MIN_TEMPO = 0.0625  # 64th
 
+aln = lambda n: SEQ_DIR + '/mafft_' + str(n) + '.fasta'
 
 GLOBALS = {'MEME_URL' : 'http://meme-suite.org/opal2/services/MEME_4.11.2',
            'SUPPORTED ALGORITHMS' : ['clustal', 'mafft', 'muscle'],
-           'VALID_MAPPING' : [default_mapping],
+           'MAPPINGS' : {0: 'NO_SYNC', 1: 'SYNC_BLOCK_DURATION',2:'SYNC_BLOCL_DURATION_DISCRETE'},
            'ALPHABET' : ['a', 'c', 'g', 't', '-'],
            'MUSE_SCORE' :   '/usr/bin/mscore',
            'FAMILIES' : {0: StringInstrument, 1: WoodwindInstrument,
                                   2: BrassInstrument, 3: Percussion},
            'SCORES' :   OUTPUT_FILES + '/scores',
            'MIDI' :   OUTPUT_FILES + '/midi',
-           'audio'  :   OUTPUT_FILES + '/audio',
-           'ALIGNMENT_PARAMS' : ['fasta_file', 'seq_vector', 'n_seq', 'algorithm']
+           'AUDIO'  :   OUTPUT_FILES + '/audio',
+           'HIST_DURATIONS' :   OUTPUT_FILES + '/stats/durations',
+            'HIST_NOTES' :   OUTPUT_FILES + '/stats/notes',
+           'ALIGNMENT_PARAMS' : ['fasta_file', 'seq_vector', 'n_seq', 'algorithm'],
            }
 
 
@@ -67,7 +73,7 @@ def find_homologous_regions(alignment_file):
     i = 0
     while i < len(alignment[0]):
         h = summ.information_content(i, i + 20, e_freq_table=e_freq_table, chars_to_ignore=['N', '-'])
-        print h
+        #print h
         i += 20
 
 
@@ -159,7 +165,7 @@ def gen_alignment(input_file, seq_vector=None, n_sequences=None, algorithm='clus
         print 'No sequences were found'
         sys.exit(0)
 
-    print sequences
+    #print sequences
     SeqIO.write(sequences, tmp_file, 'fasta')
 
     try:
@@ -297,7 +303,7 @@ def cluster_alignment(alignment, depth=1):
 # aux function
 # converts a MSA file in any format to 'phylip-relaxed'
 def msa_to_phylip(msa):
-    assert os.path.isfile(msa)
+    assert os.path.isfile(msa), "MSA file does not exist: " + msa
 
     out_file = msa.split('.')[0] + '.phy'
     AlignIO.convert(msa, 'clustal', out_file, 'phylip-relaxed')
@@ -308,98 +314,226 @@ def msa_to_phylip(msa):
 # returns a tuple containing:
 #   - a word distance vector per word (A,C,G,T)
 #   - a label array with the assigned duration of each nucleotide
-def numeric_vectors(sequence, window=5, step=1):
+def numeric_vectors(sequence, block=5, **kwargs):
 
-    vectors = dict()  # keys are nucleotides; values are np arrays
+    # kwargs:
+    #   - block_duration
+    #   - step
+    #   - duration_mapping
 
-    alphabet = GLOBALS['ALPHABET']
-    durations = {0.25: 'eighth', 0.5: 'quarter', 0.75: 'half', 1.0: 'whole'}
+    assert sequence is not None
 
-    last_occurrence = dict()
-    frequencies = []
+    # step is the number of columns/characters that are mapped
+    if 'step' in kwargs:
+        step = kwargs['step']
+        if not isinstance(step, int):
+            print 'Invalid step introduced. Using default value 1.'
+            step = 1
+    else:
+        step = 1
+
+    if 'duration_mapping' in kwargs:
+        d_mapping = kwargs['duration_mapping']
+
+        assert isinstance(d_mapping, int) and d_mapping in GLOBALS['MAPPINGS'].keys(),\
+                                    "Invalid mapping: " + str(d_mapping)
+    else:
+        d_mapping = 0
+
+    if d_mapping > 0:
+        assert 'block_duration' in kwargs, 'No time was assigned for each block of words'
+
+        block_duration = kwargs['block_duration']
+        assert isinstance(block_duration, int) or isinstance(block_duration, float)
+
+        if not isinstance(block_duration, float): block_duration = float(block_duration)
 
     length = len(sequence)
-    for i in range(0, length, window):
 
-        if i + window <= len(sequence):
-            boundary = i + window
+    # auxiliary structures
+    distance_vectors = dict()  # keys are nucleotides; values are np arrays
+    last_occurrence = dict()  # aux dict used for word distances
+
+    if d_mapping == 0:
+        # fixed size array of labels
+        durations = np.chararray((length,), itemsize=10)  # aux vector used for durations
+    else:
+        # fixed size array of floats
+        durations = np.zeros((length,), dtype=np.float)
+
+    for i in range(0, length, block):
+
+        if i + block <= len(sequence):
+            boundary = i + block
         else:
             boundary = len(sequence)
 
         subset = sequence[i:boundary]
 
-        # grouping frequencies of A,C,G,T  within a window
-        distributions = {l: float(len(filter(lambda y: y == l, subset))) / window for l in alphabet}
+        # Frequency/durations depend on selected mapping
+        # grouping frequencies of A,C,G,T  within a block
+        # distributions = {l: float(len(filter(lambda y: y == l, subset))) / block for l in alphabet}
+        counts = dict(itemfreq(subset))
 
-        for j in range(i, boundary):
+        if d_mapping == 1:
 
-            # distances
+            # counts_arr = np.zeros(boundary - i + 1)
+            counts_sum = 0
+            for j in range(i, boundary):
+                counts_sum += int(counts[subset[j-i]])
+                #counts_arr[j] = int(counts[subset[j-i]])
+            # counts_sum = np.sum(counts_arr)
+
+        for j in range(i, boundary, step):
+
+            # word distances
             letter = sequence[j]
 
-            if letter not in vectors.keys():
+            if letter not in distance_vectors.keys():
+                distance_vectors[letter] = []
 
-                # vectors[letter] = np.zeros(shape=(length))
-                vectors[letter] = []
             else:
                 diff = j - last_occurrence[letter]
-                vectors[letter].append(diff)
+                distance_vectors[letter].append(diff)
 
             last_occurrence[letter] = j
 
-            #########
+            # word frequencies
 
-            dist = distributions[subset[j - i]]
+            local_count = int(counts[subset[j - i]])
+            freq = float(local_count) / len(subset)
 
-            local_duration = 'eighth'
-            keys = durations.keys()
+            if d_mapping == 0:
 
-            for k in keys:
+                duration_labels = {0.25: 'eighth', 0.5: 'quarter', 0.75: 'half', 1.0: 'whole'}
+                local_duration = 'eighth'
 
-                if k > dist:
+                keys = duration_labels.keys()
 
-                    local_duration = durations[k]
-                    break
+                for k in keys:
 
-            #print str(dist) + ', ' + str(local_duration)
-            frequencies.append(local_duration)
+                    if k > freq:
+                        local_duration = duration_labels[k]
+                        break
 
-    frequencies = np.array(frequencies)
+            # duration-biased algorithms
+            elif d_mapping == 1:
 
-    for x, y in vectors.iteritems():
+                local_duration = float(block_duration) * float(local_count) / float(counts_sum)
+                assert local_duration > MIN_TEMPO, \
+                    'Higher tempo required for each subsequence; too short duration was calculated: ' + str(local_duration)
+
+            # duration biased with discrete atributions
+            elif d_mapping == 2:
+
+                duration_labels = np.array(['32nd','16th','eighth','quarter','half','whole'])
+                frequencies = np.linspace(0.0, 0.5, num=len(duration_labels)-1)
+
+
+                duration_labels = {frequencies[i]:duration_labels[i] for i in range(0, len(duration_labels)-1)}
+                duration_labels['whole'] = 1.0
+
+                local_duration = '32nd'
+                keys = duration_labels.keys()
+
+                # print freq
+                for k in keys:
+                    if k > freq:
+                        local_duration = duration_labels[k]
+                        break
+
+                local_duration = duration.Duration(local_duration).quarterLength
+                print local_duration
+
+            else:
+                print 'Invalid mapping introduced: ', str(d_mapping)
+                raise NotImplementedError
+
+            durations[j] = local_duration
+
+        if d_mapping > 0:
+            total = np.sum([durations[j] for j in range(i, boundary)])
+
+        if d_mapping == 2:
+            # total = np.sum([duration.Duration(durations[j]).quarterLength for j in range(i,boundary)])
+            print total
+            # total = np.sum([durations[j] for j in range(i, boundary)])
+            if round(float(total), 5) != round(float(block_duration), 5):
+
+                ratio = float(block_duration)/float(total)
+                total = 0.0
+                for j in range(i, boundary):
+                    durations[j] *= ratio
+                    assert durations[j] >= MIN_TEMPO
+                    total += durations[j]
+
+        if d_mapping > 0:
+            assert round(float(total), 5) == round(float(block_duration), 5), \
+                'Durations don\'t  match: ' + str(float(total)) + ' ' + str(float(block_duration))
+
+    for x, y in distance_vectors.iteritems():
         diff = length - last_occurrence[x]
-        vectors[x].append(diff)
+        distance_vectors[x].append(diff)
 
-    for x in vectors.keys():
-        vectors[x] = np.array(vectors[x])
+    for x in distance_vectors.keys():
+        distance_vectors[x] = np.array(distance_vectors[x])
 
     # (distances, frequencies per N words)
+    # print distance_vectors, frequencies
+    return distance_vectors, durations
 
-    #print vectors, frequencies
-    return vectors, frequencies
 
+def gen_stream(score, sequence, block=10,
+               assigned_instr=instrument.Violin(), duration_mapping=0, **kwargs):
 
-def gen_stream(score, sequence, window=5, step=1, assigned_instr=instrument.Violin(),
-               signal_gap=False):
+    # keyworded arguments:
+    #   block_duration
+    #   step
+    #   signal_gap
 
-    dv, durations = numeric_vectors(sequence, window=window, step=step)
+    if 'block_duration' in kwargs:
+        block_duration = kwargs['block_duration']
+        assert isinstance(block_duration, int) or isinstance(block_duration, float)
+    else:
+        block_duration = -1
 
+    if 'step' in kwargs:
+        step = kwargs['step']
+        assert isinstance(step, int)
+    else:
+        step = 1
+
+    if 'signal_gap' in kwargs:
+        signal_gap = kwargs['signal_gap']
+        if signal_gap is True:
+            raise NotImplementedError
+
+    dv, durations = numeric_vectors(sequence, block_duration=block_duration,
+                                    block=block, step=step, duration_mapping=duration_mapping)
+
+    print sequence
     for x in dv.keys():
-
         dv[x] = iter(dv[x])
 
+    # print durations
     durations = iter(durations)
 
     scale_len = len(scale.MajorScale().getPitches())
     s = scale.MajorScale()
 
     part = stream.Part()
+    print assigned_instr
+
+    # TESTING !!!
     part.insert(0, assigned_instr)
 
+    print 'Assigning notes and durations from numeric vectors...'
+
+    print '-' in sequence
     for l in sequence:
 
         pitch = dv[l].next()
         d = durations.next()
-        print d
 
         if l is not '-':
 
@@ -408,37 +542,46 @@ def gen_stream(score, sequence, window=5, step=1, assigned_instr=instrument.Viol
             n = note.Note(n)
 
             n.duration = duration.Duration(d)
+
         else:
 
-            if not signal_gap:
+            n = note.Rest()
+            n.duration = duration.Duration(d)
 
-                n = note.Rest()
-                n.duration = duration.Duration(d)
-
-            else:
+            """else:
                 n = pitch % scale_len
                 n = s.getPitches()[n]
                 n = note.Note(n)
                 n.octave = 10
 
-                n.duration = duration.Duration(10.0)
+                n.duration = duration.Duration(10.0)"""
 
         n.addLyric(l)
 
         assert isinstance(n, Music21Object)
         part.append(n)
 
+    print 'Insering part on score'
     score.insert(0, part)
+    print 'Done'
 
 
-def gen_song(input_alignment=None, alignment_parameters=None, output_midi=None, output_score=None, show_score=None, audio=None, step=10):
+def gen_song(input_alignment=None, alignment_parameters=None, duration_mapping=0, **kwargs):
+    # kwargs:
+    #   output_midi=None
+    #   output_score=None
+    #   show_score=Fals,
+    #   audio=None,
+    #   block=10
+    #   block_duration=3
 
-    assert input_alignment is not None ^ alignment_parameters is not None
-    assert output_midi is not None or output_score is not None or show_score is not None
+    assert (input_alignment is not None) ^ (alignment_parameters is not None), \
+        'Cannot choose alignment file and sequences to align simultaneously'
 
     if input_alignment is not None:
+
         print 'Converting from clustal format to phylip...'
-        aln_file = msa_to_phylip(SEQ_DIR + "/" + input_alignment)
+        aln_file = msa_to_phylip(input_alignment)
     else:
         assert isinstance(alignment_parameters, dict)
 
@@ -449,7 +592,7 @@ def gen_song(input_alignment=None, alignment_parameters=None, output_midi=None, 
 
         if 'algorithm' not in alignment_parameters.keys():
             print 'Missing alignment algorithm'
-        algorithm = alignment_parameters
+        algorithm = alignment_parameters['algorithm']
 
         seq_vector, n_seq = None, None
         if 'seq_vector' not in alignment_parameters.keys():
@@ -460,66 +603,168 @@ def gen_song(input_alignment=None, alignment_parameters=None, output_midi=None, 
         else:
             seq_vector = alignment_parameters['seq_vector']
 
-        gen_alignment(seq_vector=seq_vector, n_sequences=n_seq, algorithm=algorithm)
-        aln_file = input_alignment
-        pass
+        gen_alignment(seq_file, seq_vector=seq_vector, n_sequences=n_seq, algorithm=algorithm)
+        aln_file = AlignIO.read(open(seq_file.split('.')[0] + '.aln', 'rU'), algorithm)
+        aln_file = msa_to_phylip(aln_file)
 
     # TODO: insert clustering
-    instruments = [instrument.Violin(), instrument.SopranoSaxophone()]
+    instruments = [instrument.Violin(), instrument.ElectricGuitar(),
+                   instrument.Xylophone(), instrument.PanFlute()]
     score = stream.Score()
 
     print 'Opening phylip file...'
-    alignment = AlignIO.read(open(SEQ_DIR + "/" + aln_file.split('.')[0] + ".phy"), 'phylip-relaxed')
+    alignment = AlignIO.read(open(aln_file.split('.')[0] + ".phy"), 'phylip-relaxed')
+
+    print 'Generating score parts...'
+
+    if 'block_duration' not in kwargs:
+        block_duration = 4
+    else:
+        assert isinstance(kwargs['block_duration'], int) and kwargs['block_duration'] > 0
+        block_duration = kwargs['block_duration']
+
+    if 'block' not in kwargs:
+        block = 10
+    else:
+        assert isinstance(kwargs['block'], int) #and kwargs['block'] > block_duration
+        block = kwargs['block']
 
     i = 0
-    for record in alignment:
-        gen_stream(score, record.seq[:400], window=step, assigned_instr=instruments[i], signal_gap=False)
-        i += 1
-        # print score.highestTime
+    sequence_names = np.chararray((len(alignment),), itemsize=25)
 
+    for record in alignment:
+
+        sequence_names[i] = record.description
+        gen_stream(score, record.seq[:400], block=block,
+                   assigned_instr=instruments[i], duration_mapping=duration_mapping,
+                   block_duration=block_duration)
+        i += 1
+
+    print 'Checking if parts have the same time...'
     for part in score.parts:
 
         diff = score.highestTime - part.highestTime
 
         if diff > 0:
-            while score.highestTime - part.highestTime > 0:
+
+            while round(diff, 5) > 0:
+
+                # minimum = duration.Duration('2048th')
                 n = note.Rest()
-                n.duration = duration.Duration(2.0)
 
+                if diff >= float(0.5):
+                    n.duration = duration.Duration(0.5)
+                else:
+                    if diff >= MIN_TEMPO:
+                        n.duration = duration.Duration(diff)
+                    else:
+                        n.duration = duration.Duration(MIN_TEMPO)
+
+                assert n.duration.quarterLength > MIN_TEMPO
                 part.append(n)
+                diff = score.highestTime - part.highestTime
 
-    if output_score is not None:
+    print 'Generating durations histograms'
 
+    if not os.path.isdir(GLOBALS['HIST_DURATIONS']):
+        if not os.path.isdir(OUTPUT_FILES + '/stats'):
+            os.makedirs(OUTPUT_FILES + '/stats')
+        os.makedirs(GLOBALS['HIST_DURATIONS'])
+
+    if input_alignment is not None:
+        hist_dir = input_alignment.split('.')[0].split('/')[-1]
+
+    if not os.path.isdir(GLOBALS['HIST_DURATIONS'] + '/' + hist_dir):
+        os.makedirs(GLOBALS['HIST_DURATIONS'] + '/' + hist_dir)
+
+    if not os.path.isdir(GLOBALS['HIST_NOTES'] + '/' + hist_dir):
+        os.makedirs(GLOBALS['HIST_NOTES'] + '/' + hist_dir)
+
+    i = 0
+    for part in score.parts:
+
+        durations_notes = np.array([(float(x.duration.quarterLength), x.name) for x in part
+                                    if not isinstance(x, instrument.Instrument)],
+                                   dtype=[('durations', np.float,), ('notes', 'S5')])
+
+        durations = durations_notes['durations'] # first column
+        notes = durations_notes['notes']
+        # print notes
+
+        plt.hist(durations, color='b')
+        plt.savefig(GLOBALS['HIST_DURATIONS'] + '/' + hist_dir + '/' + sequence_names[i])
+        plt.close()
+
+        from collections import Counter
+        # import pandas
+
+        counts = Counter(notes)
+        # df = pandas.DataFrame.from_dict(counts, orient='index')
+        # print df[0]
+
+        note_names = counts.keys()
+        note_values = counts.values()
+
+        width = 1.0
+        idx = np.arange(len(note_names))
+        plt.bar(idx, note_values, width)
+        plt.xticks(idx + width * 0.5, note_names)
+        plt.savefig(GLOBALS['HIST_NOTES'] + '/' + hist_dir + '/' + sequence_names[i])
+        plt.close()
+
+        i += 1
+
+    print 'Checking output parameters...'
+    if 'output_score' in kwargs:
+
+        output_score = kwargs['output_score']
         assert isinstance(output_score, str)
 
-        if not output_score.endswith('.pdf'):
-            output_score = output_score + '_' + str(step) + '.pdf'
+        print 'Writing score...'
 
-        score.write('lily.pdf', fp=GLOBALS['SCORES'] + '/')  # + '.pdf')
-        os.unlink(CURR_DIR + '/' + output_score + '_' + str(step))
+        """for part in score.parts:
+            for n in part:
+                # assert float() >= 0.001953125
+                if not isinstance(n, instrument.Instrument):
+                    print n.quarterLength"""
 
-    if output_midi is not None:
+        # lily already inserts extension in filename
+        output_score = output_score[:-4] if output_score.endswith('.pdf') else output_score
 
+        score.write('lily.pdf', fp=GLOBALS['SCORES'] + '/' + output_score)
+
+        to_unlink = GLOBALS['SCORES'] + '/' + output_score
+        if os.path.isfile(to_unlink):
+            os.unlink(to_unlink)
+
+    if 'output_midi' in kwargs:
+
+        output_midi = kwargs['output_midi']
         assert isinstance(output_midi, str)
 
+        print 'Writing midi...'
         if not output_midi.endswith('.mid'):
-            output_midi = output_midi + '_' + str(step) + '.mid'
+            output_midi += '.mid'
 
         output_midi = GLOBALS['MIDI'] + '/' + output_midi
 
-        f = midi.MidiFile()
-        f.open(output_midi, attrib = 'wb')
+        f = midi.translate.streamToMidiFile(score)
+        f.open(output_midi, attrib='wb')
         f.write()
         f.close()
 
-    if show_score is not None:
+    if 'show_score' not in kwargs or (isinstance(kwargs['show_score'], bool) and kwargs['show_score'] is True):
+
+        # by default score is shown
+        print 'Displaying score...'
         score.show(app=GLOBALS['MUSE_SCORE'])
 
-    if audio is not None:
-        print 'Audio online conversion not implemented'
+    if 'audio' in kwargs:
+        print 'Midi to audio conversion not implemented'
+        raise NotImplemented
 
 
 if __name__ == "__main__":
 
-    for window in range(10,50,10):
-        gen_song()
+    TEST_FILE = SEQ_DIR + '/mafft_164358.fasta'# '/mafft_3.fasta'
+    gen_song(TEST_FILE, duration_mapping=2, block=20, block_duration=13, show_score=False,output_midi='test.mid')

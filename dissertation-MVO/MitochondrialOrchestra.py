@@ -104,10 +104,6 @@ class Orchestra(object):
         #midi_file_out.write_Composition('composition', LilyPond.from_Composition(self.composition))
 
 
-class InstrumentFamily(object):
-    pass
-
-
 class MusicDNAMapping(object):
 
     def __init__(self, mapping=default_mapping):
