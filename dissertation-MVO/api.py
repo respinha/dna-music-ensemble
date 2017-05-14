@@ -13,27 +13,24 @@ from Bio.Align.Applications import ClustalwCommandline
 from Bio.Align.Applications import MafftCommandline
 from Bio.Align.Applications import MuscleCommandline
 
-from scipy.cluster.hierarchy import dendrogram, linkage
-from scipy.cluster.hierarchy import fcluster
+
 from scipy.stats import itemfreq
 
 import numpy as np
+import pandas
 
 import os
 import sys
 import random
 
 from Bio.Phylo.TreeConstruction import DistanceCalculator
-from scipy.cluster.hierarchy import dendrogram, linkage
-from scipy.cluster.hierarchy import fcluster
 
 from matplotlib import pyplot as plt
 
 from music21 import note, scale, instrument, stream, duration
-from music21.instrument import StringInstrument, WoodwindInstrument, BrassInstrument, Percussion
+from music21.instrument import StringInstrument, WoodwindInstrument, BrassInstrument, PitchedPercussion
 from music21 import Music21Object
 from music21 import midi
-
 
 
 CURR_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -45,11 +42,11 @@ aln = lambda n: SEQ_DIR + '/mafft_' + str(n) + '.fasta'
 
 GLOBALS = {'MEME_URL' : 'http://meme-suite.org/opal2/services/MEME_4.11.2',
            'SUPPORTED ALGORITHMS' : ['clustal', 'mafft', 'muscle'],
-           'MAPPINGS' : {0: 'NO_SYNC', 1: 'SYNC_BLOCK_DURATION',2:'SYNC_BLOCL_DURATION_DISCRETE'},
+           'MAPPINGS' : {0: 'NO_SYNC', 1: 'SYNC_BLOCK_DURATION',2:'SYNC_BLOCL_DURATION_DISCRETE',3:'DURATION_WITH_DISTANCES'},
            'ALPHABET' : ['a', 'c', 'g', 't', '-'],
            'MUSE_SCORE' :   '/usr/bin/mscore',
            'FAMILIES' : {0: StringInstrument, 1: WoodwindInstrument,
-                                  2: BrassInstrument, 3: Percussion},
+                                  2: BrassInstrument, 3: PitchedPercussion},
            'SCORES' :   OUTPUT_FILES + '/scores',
            'MIDI' :   OUTPUT_FILES + '/midi',
            'AUDIO'  :   OUTPUT_FILES + '/audio',
@@ -57,25 +54,6 @@ GLOBALS = {'MEME_URL' : 'http://meme-suite.org/opal2/services/MEME_4.11.2',
             'HIST_NOTES' :   OUTPUT_FILES + '/stats/notes',
            'ALIGNMENT_PARAMS' : ['fasta_file', 'seq_vector', 'n_seq', 'algorithm'],
            }
-
-
-def find_homologous_regions(alignment_file):
-    alignment = AlignIO.read(alignment_file, 'clustal')
-
-    summ = AlignInfo.SummaryInfo(alignment)
-    expect_freq = {'A': .25, 'G': .25, 'T': .25, 'C': .25}
-
-    from Bio.Alphabet import IUPAC
-    from Bio.SubsMat import FreqTable
-
-    e_freq_table = FreqTable.FreqTable(expect_freq, FreqTable.FREQ, IUPAC.unambiguous_dna)
-
-    i = 0
-    while i < len(alignment[0]):
-        h = summ.information_content(i, i + 20, e_freq_table=e_freq_table, chars_to_ignore=['N', '-'])
-        #print h
-        i += 20
-
 
 def read_phylo_tree(sequence_file):
     tree = Phylo.read(sequence_file.split('.')[0] + '.dnd', 'newkick')
@@ -135,7 +113,7 @@ def generator_from_iterable(iterable, n):
 #   seq_vector: vector specifying subset of sequences by reference
 #   n_sequences: first n sequences of file
 #   MSA algorithm (default: Clustal)
-def gen_alignment(input_file, seq_vector=None, n_sequences=None, algorithm='clustal', output_file='output'):
+def gen_alignment(input_file, seq_vector=None, n_sequences=None, algorithm='mafft', output_file='output'):
 
     assert input_file is not None and os.path.isfile(input_file)
     assert output_file is not None
@@ -210,12 +188,10 @@ def gen_alignment(input_file, seq_vector=None, n_sequences=None, algorithm='clus
 
         print 'Elapsed time: ' + str((time.time() - t0) / 60)
 
+        return output_file
     except:
         print 'Error aligning with ' + algorithm
-
-    #if os.path.isfile(seq_file):
-    #    os.unlink(seq_file)
-
+        
 
 # retrieves a distance matrix from:
 #   a) a multiple sequence alignment
@@ -229,36 +205,80 @@ def get_distance_matrix(msa):
 
 
 # clusters all sequences in a MSA
-def get_clusters_from_alignment(msa, depth, save_dendrogram=False):
-    assert msa is not None and isinstance(msa, MultipleSeqAlignment)
-    assert isinstance(depth, int) and depth > 0
-
+def get_clusters_from_alignment(msa, **kwargs):
+    
+    assert isinstance(msa, MultipleSeqAlignment)
+    # assert isinstance(depth, int) and depth > 0
+    
     print 'Retrieving distance matrix'
     dm = get_distance_matrix(msa)
+
+    instruments = np.array(len(msa))
+
     if dm is not None:
+        
+        assert 'algorithm' in kwargs.keys(), 'No algorithm specified for clustering'
+        
+        algorithm = kwargs['algorithm']
 
-        print 'Retrieving cluster tree'
+        if 'nclusters' not in kwargs.keys():
+            nclusters = len(msa) / 2
+        else:
+            nclusters = kwargs['nclusters']
+            assert isinstance(nclusters, int)
 
-        Z = linkage(dm)
+        if algorithm == 'kmeans':
+                
+            from sklearn.cluster import KMeans
+            
+            model = KMeans(n_clusters=nclusters, random_state=0)
+            model.fit(dm)
 
-        if save_dendrogram:
-            plt.title('Hierarchical Clustering Dendrogram')
-            plt.xlabel('sample index')
-            plt.ylabel('distance')
+            clusters = model.labels_
+            # centroids = model.cluster_centers_
 
-            dendrogram(
-                Z,
-                leaf_rotation=90.,  # rotates the x axis labels
-                leaf_font_size=8.,  # font size for the x axis labels
-            )
-            plt.savefig('dendogram.png')
+        elif algorithm == 'hierarchical':
 
-        max_d = 0.01 # TODO: make this dynamic
+            from scipy.cluster.hierarchy import dendrogram, linkage
+            from scipy.cluster.hierarchy import fcluster
 
-        clusters = fcluster(Z, max_d, criterion='distance')
-        print clusters
+            print 'Retrieving cluster tree'
+    
+            Z = linkage(dm)
 
-        return clusters
+            """if 'dendrogram' in kwargs.keys():
+                if kwargs['dendrogram']:
+    
+                    plt.title('Hierarchical Clustering Dendrogram')
+                    plt.xlabel('sample index')
+                    plt.ylabel('distance')
+        
+                    dendrogram(
+                        Z,
+                        leaf_rotation=90.,  # rotates the x axis labels
+                        leaf_font_size=8.,  # font size for the x axis labels
+                    )
+                    plt.savefig('dendogram.png')
+            """
+
+            max_d = 0.01 # TODO: make this dynamic
+            clusters = fcluster(Z, max_d, criterion='distance')
+
+        else:
+            print 'Invalid cluster algorithm'
+            raise NotImplementedError
+
+        from random import shuffle
+
+        instruments_pool = PitchedPercussion.__subclasses__()
+        shuffle(instruments_pool)
+        instruments_pool = instruments_pool[:nclusters]
+
+        # TODO: TEST!
+        i = 0
+        for cluster in clusters:
+            instruments[i] = instruments_pool[cluster]
+            i += 1
 
     return None
 
@@ -311,6 +331,112 @@ def msa_to_phylip(msa):
     return out_file
 
 
+def dynamics_algorithm(msa, window=500, criteria='local', gap_threshold=0.7, n_levels=5):
+
+        # criteria: local, avg ou median entropy
+        assert 'window' is not None and window > 0, 'Empty window for dynamics algorithm'
+
+        aln_len = np.alen(msa[0])
+
+        from math import ceil
+        gaps_below_thresh = np.zeros((ceil(float(aln_len)/window))+1, dtype=np.bool)
+
+        window_idx = 0
+        # first iterating through MSA to identify
+        # which windows have a percentage of gaps
+        # below the established threshold
+        for i in range(0,aln_len, window):
+
+            if i + window > aln_len: window = aln_len - i
+
+            local_is_below_threshold = np.zeros((window,), dtype=np.bool)
+            for j in range(i, i+window):
+
+                column = np.array([c for c in msa[:,j]])
+
+                n_gaps = float(np.count_nonzero(column == '-'))
+
+                if n_gaps / len(column) < gap_threshold:
+                    local_is_below_threshold[j-i] = True
+
+            if np.alen(np.where(local_is_below_threshold)) < 0.7 * window:
+                gaps_below_thresh[window_idx] = True
+
+            window_idx += 1
+
+        n_windows = np.alen(np.where(gaps_below_thresh)[0])
+
+        from scipy.stats import entropy
+
+        dynamics_vector = np.zeros((n_windows,),
+                                   dtype=[('entropy', np.float), ('vol', np.float)])
+
+        entropies_idx = 0
+
+        for i in range(0, aln_len, window):
+
+            if i + window > aln_len: window = aln_len - i
+
+            # if this window has a percentage of gaps
+            # above the considered threshold
+            # TODO: handle gaps; maybe include rests (0) in dynamics_vector?
+            if not gaps_below_thresh[entropies_idx]:
+                continue
+
+            local_entropy = np.zeros((window,))
+
+            for j in range(i, i+window):
+
+                column = msa[:, j]
+
+                column_symbols = column[np.where(column != '-')]
+
+                if len(column_symbols) < (1-gap_threshold) * len(column):
+
+                    # apply thresholding +
+                    pass
+                else:
+                    # Shannon entropy of all column symbols
+
+                    counts = itemfreq(column_symbols)
+                    counts = np.array([float(count) for count in counts[:,1]])
+
+                    counts /= np.sum(counts)
+
+                    local_entropy[j-i] = entropy(counts, base=2)
+
+            if criteria == 'local':
+                dynamics_vector['entropy'][entropies_idx] = np.sum(local_entropy)
+            elif criteria == 'average':
+                dynamics_vector['entropy'][entropies_idx] = np.average(local_entropy)
+            elif criteria == 'median':
+                dynamics_vector['entropy'][entropies_idx] = np.median(local_entropy)
+            else:
+                print 'Unsupported criteria ' + str(criteria) + ' for entropy aggregation'
+                sys.exit(1)
+
+            entropies_idx += 1
+
+        max_vol = 0.95
+        min_vol = 0.30
+
+        entropies = dynamics_vector['entropy']
+
+        split_info = np.array_split(np.sort(np.unique(entropies)), n_levels)   # splitting info into classes
+        volumes = np.linspace(min_vol, max_vol, num=n_levels)                # vector with all possible volumes
+
+        print volumes
+        for i in range(0, n_windows):
+
+            for j in range(0, np.alen(split_info)):
+                if entropies[i] <= split_info[j][-1]:
+
+                    dynamics_vector[i]['vol'] = volumes[j]
+                    break
+
+        return dynamics_vector, n_windows
+
+
 # returns a tuple containing:
 #   - a word distance vector per word (A,C,G,T)
 #   - a label array with the assigned duration of each nucleotide
@@ -357,9 +483,17 @@ def numeric_vectors(sequence, block=5, **kwargs):
     if d_mapping == 0:
         # fixed size array of labels
         durations = np.chararray((length,), itemsize=10)  # aux vector used for durations
-    else:
+    elif d_mapping == 1 or d_mapping == 2:
         # fixed size array of floats
         durations = np.zeros((length,), dtype=np.float)
+
+    """elif d_mapping == 3:
+        # TODO: not efficient; reimplement in next week
+
+        print 'Global itemfrequency'
+        global_itemfreq = itemfreq(sequence)
+
+        durations = {x[0]: [np.zeros(int(x[1])), 0] for x in global_itemfreq}"""
 
     for i in range(0, length, block):
 
@@ -377,13 +511,11 @@ def numeric_vectors(sequence, block=5, **kwargs):
 
         if d_mapping == 1:
 
-            # counts_arr = np.zeros(boundary - i + 1)
             counts_sum = 0
             for j in range(i, boundary):
                 counts_sum += int(counts[subset[j-i]])
-                #counts_arr[j] = int(counts[subset[j-i]])
-            # counts_sum = np.sum(counts_arr)
 
+        total_time = 0.0
         for j in range(i, boundary, step):
 
             # word distances
@@ -395,6 +527,15 @@ def numeric_vectors(sequence, block=5, **kwargs):
             else:
                 diff = j - last_occurrence[letter]
                 distance_vectors[letter].append(diff)
+
+                """if d_mapping == 3:
+                    idx = durations[letter][1]
+                    durations[letter][0][idx] = diff
+
+                    idx += 1
+                    durations[letter][1] = idx
+
+                    total_time += float(diff)"""
 
             last_occurrence[letter] = j
 
@@ -416,10 +557,13 @@ def numeric_vectors(sequence, block=5, **kwargs):
                         local_duration = duration_labels[k]
                         break
 
+
             # duration-biased algorithms
             elif d_mapping == 1:
 
                 local_duration = float(block_duration) * float(local_count) / float(counts_sum)
+                total_time += local_duration
+
                 assert local_duration > MIN_TEMPO, \
                     'Higher tempo required for each subsequence; too short duration was calculated: ' + str(local_duration)
 
@@ -429,7 +573,7 @@ def numeric_vectors(sequence, block=5, **kwargs):
                 duration_labels = np.array(['32nd','16th','eighth','quarter','half','whole'])
                 frequencies = np.linspace(0.0, 0.5, num=len(duration_labels)-1)
 
-
+                # dictionary mapping a discrete value for word frequencies to each duration label
                 duration_labels = {frequencies[i]:duration_labels[i] for i in range(0, len(duration_labels)-1)}
                 duration_labels['whole'] = 1.0
 
@@ -443,7 +587,7 @@ def numeric_vectors(sequence, block=5, **kwargs):
                         break
 
                 local_duration = duration.Duration(local_duration).quarterLength
-                print local_duration
+                total_time += local_duration
 
             else:
                 print 'Invalid mapping introduced: ', str(d_mapping)
@@ -451,31 +595,54 @@ def numeric_vectors(sequence, block=5, **kwargs):
 
             durations[j] = local_duration
 
-        if d_mapping > 0:
-            total = np.sum([durations[j] for j in range(i, boundary)])
+        # if d_mapping > 0 and d_mapping < 3:
+        #     total = np.sum([durations[j] for j in range(i, boundary)])
 
         if d_mapping == 2:
-            # total = np.sum([duration.Duration(durations[j]).quarterLength for j in range(i,boundary)])
-            print total
-            # total = np.sum([durations[j] for j in range(i, boundary)])
-            if round(float(total), 5) != round(float(block_duration), 5):
 
-                ratio = float(block_duration)/float(total)
-                total = 0.0
+            if round(float(total_time), 5) != round(float(block_duration), 5):
+
+                ratio = float(block_duration) / float(total_time)
+                total_time = 0.0
                 for j in range(i, boundary):
                     durations[j] *= ratio
-                    assert durations[j] >= MIN_TEMPO
-                    total += durations[j]
 
+                    assert durations[j] >= MIN_TEMPO,\
+                        'Higher tempo required for each subsequence; too short duration was calculated: ' + str(durations[j])
+
+                    total_time += durations[j]
+
+        """elif d_mapping == 3:
+
+            if round(float(total_time), 5) != round(float(block_duration), 5):
+
+                ratio = float(block_duration) / float(total_time)
+                total_time = 0.0
+
+                print subset
+                for key, array in iter(durations.items()):
+
+                    print key
+                    sub_array = array[0][i:boundary]
+
+                    for j in range(i, boundary):
+
+                        print sub_array[j]
+                        sub_array[j] *= ratio
+                        total_time += sub_array[j]
+
+                        assert sub_array[j] >= MIN_TEMPO, \
+                        'Higher tempo required for each subsequence; too short duration was calculated: ' + str(sub_array[j])
+        """
         if d_mapping > 0:
-            assert round(float(total), 5) == round(float(block_duration), 5), \
-                'Durations don\'t  match: ' + str(float(total)) + ' ' + str(float(block_duration))
+            assert round(float(total_time), 5) == round(float(block_duration), 5), \
+                'Durations don\'t  match: ' + str(float(total_time)) + ' ' + str(float(block_duration))
 
-    for x, y in distance_vectors.iteritems():
+    for x, y in iter(distance_vectors.items()):
         diff = length - last_occurrence[x]
         distance_vectors[x].append(diff)
 
-    for x in distance_vectors.keys():
+    for x in iter(distance_vectors.keys()):
         distance_vectors[x] = np.array(distance_vectors[x])
 
     # (distances, frequencies per N words)
@@ -511,8 +678,9 @@ def gen_stream(score, sequence, block=10,
     dv, durations = numeric_vectors(sequence, block_duration=block_duration,
                                     block=block, step=step, duration_mapping=duration_mapping)
 
-    print sequence
+    # print sequence
     for x in dv.keys():
+        # print len(dv[x])
         dv[x] = iter(dv[x])
 
     # print durations
@@ -524,12 +692,11 @@ def gen_stream(score, sequence, block=10,
     part = stream.Part()
     print assigned_instr
 
-    # TESTING !!!
     part.insert(0, assigned_instr)
 
     print 'Assigning notes and durations from numeric vectors...'
 
-    print '-' in sequence
+    c = 0
     for l in sequence:
 
         pitch = dv[l].next()
@@ -608,8 +775,7 @@ def gen_song(input_alignment=None, alignment_parameters=None, duration_mapping=0
         aln_file = msa_to_phylip(aln_file)
 
     # TODO: insert clustering
-    instruments = [instrument.Violin(), instrument.ElectricGuitar(),
-                   instrument.Xylophone(), instrument.PanFlute()]
+    instruments = [instrument.Violin(), instrument.Flute()]
     score = stream.Score()
 
     print 'Opening phylip file...'
@@ -672,13 +838,27 @@ def gen_song(input_alignment=None, alignment_parameters=None, duration_mapping=0
         os.makedirs(GLOBALS['HIST_DURATIONS'])
 
     if input_alignment is not None:
+
         hist_dir = input_alignment.split('.')[0].split('/')[-1]
 
-    if not os.path.isdir(GLOBALS['HIST_DURATIONS'] + '/' + hist_dir):
-        os.makedirs(GLOBALS['HIST_DURATIONS'] + '/' + hist_dir)
+    if 'output_midi' in kwargs:
+        output_midi = kwargs['output_midi']
+        assert isinstance(output_midi, str)
 
-    if not os.path.isdir(GLOBALS['HIST_NOTES'] + '/' + hist_dir):
-        os.makedirs(GLOBALS['HIST_NOTES'] + '/' + hist_dir)
+        durations_dir = GLOBALS['HIST_DURATIONS'] + '/' + output_midi
+        notes_dir = GLOBALS['HIST_NOTES'] + '/' + output_midi
+
+        if not os.path.isdir(durations_dir):
+            os.makedirs(durations_dir)
+
+        if not os.path.isdir(notes_dir):
+            os.makedirs(notes_dir)
+
+    if not os.path.isdir(durations_dir + '/' + hist_dir):
+        os.makedirs(durations_dir + '/' + hist_dir)
+
+    if not os.path.isdir(notes_dir + '/' + hist_dir):
+        os.makedirs(notes_dir + '/' + hist_dir)
 
     i = 0
     for part in score.parts:
@@ -692,7 +872,7 @@ def gen_song(input_alignment=None, alignment_parameters=None, duration_mapping=0
         # print notes
 
         plt.hist(durations, color='b')
-        plt.savefig(GLOBALS['HIST_DURATIONS'] + '/' + hist_dir + '/' + sequence_names[i])
+        plt.savefig(durations_dir + '/' + hist_dir + '/' + sequence_names[i])
         plt.close()
 
         from collections import Counter
@@ -709,7 +889,7 @@ def gen_song(input_alignment=None, alignment_parameters=None, duration_mapping=0
         idx = np.arange(len(note_names))
         plt.bar(idx, note_values, width)
         plt.xticks(idx + width * 0.5, note_names)
-        plt.savefig(GLOBALS['HIST_NOTES'] + '/' + hist_dir + '/' + sequence_names[i])
+        plt.savefig(notes_dir + '/' + hist_dir + '/' + sequence_names[i])
         plt.close()
 
         i += 1
@@ -760,11 +940,71 @@ def gen_song(input_alignment=None, alignment_parameters=None, duration_mapping=0
         score.show(app=GLOBALS['MUSE_SCORE'])
 
     if 'audio' in kwargs:
-        print 'Midi to audio conversion not implemented'
-        raise NotImplemented
+        # print 'Midi to audio conversion not implemented'
 
+        audio = kwargs['audio']
+        assert isinstance(audio, bool)
+
+        if audio:
+            audio_name = output_midi.split('.')[0] + '.ogg'
+
+            subprocess.call(["timidity",output_midi,"-Ow","-o",audio_name])
+            # raise NotImplemented
+
+
+def gen_random_seqs(n, MAX, filename):
+
+    short_version = []
+
+    with open('source_sequences/mitochondrion.1.1.genomic.fna', 'rU') as handle:
+        seq_iterator = SeqIO.parse(handle, 'fasta')
+
+        i = 0
+        for record in seq_iterator:
+            if i > MAX:
+                break
+            else:
+                short_version.append(record)
+            i += 1
+
+    from random import shuffle
+    shuffle(short_version)
+
+    SeqIO.write(short_version[:n], filename, 'fasta')
 
 if __name__ == "__main__":
+    # TEST_FILE_1 = SEQ_DIR + '/clustal_11.aln'  # '/mafft_164358.fasta'
 
-    TEST_FILE = SEQ_DIR + '/mafft_164358.fasta'# '/mafft_3.fasta'
-    gen_song(TEST_FILE, duration_mapping=2, block=20, block_duration=13, show_score=False,output_midi='test.mid')
+    # rnd_file = SEQ_DIR + 'rnd.fasta'
+    # gen_random_seqs(8, 40, rnd_file)
+    # aln = gen_alignment(rnd_file, n_sequences=8)
+
+    msa = AlignIO.read('output.fasta', 'clustal')
+    msa = np.array([np.array(seq) for seq in msa])
+
+    # plt.plot(np.array([H for H in ]))
+
+    d_vector, windows = dynamics_algorithm(msa, window=1500)
+
+    left = np.arange(windows)
+    height = d_vector['vol']
+
+    plt.bar(left, height)
+    plt.show()
+    plt.close()
+
+
+    """
+    TEST_FILE_2 = SEQ_DIR + '/mafft_164358.fasta'
+
+    for i in range(10,21):
+        gen_song(TEST_FILE_1, duration_mapping=1, block=20, block_duration=i, show_score=False,
+                 output_midi='Oryzas_1_' + str(i) + '.mid',audio=True)
+        gen_song(TEST_FILE_1, duration_mapping=2, block=20, block_duration=i, show_score=False,
+                 output_midi='Oryzas_2_' + str(i) + '.mid',audio=True)
+
+    for i in range(20,26):
+        gen_song(TEST_FILE_2, duration_mapping=1, block=20, block_duration=i, show_score=False,
+             output_midi='OryzasAmmotheas_1_' + str(i) + '.mid',audio=True)
+        gen_song(TEST_FILE_2, duration_mapping=2, block=20, block_duration=i, show_score=False,
+             output_midi='OryzasAmmotheas_2_' + str(i) + '.mid',audio=True)"""

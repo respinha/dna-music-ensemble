@@ -13,4 +13,9 @@ coding/.idea/*
 */source_sequences/*
 */example/
 */example/*
-coding/*.txt
+dissertation-MVO/.idea/
+dissertation-MVO/.idea/*
+dissertation-MVO/test*
+dissertation-MVO/*.png
+dissertation-MVO/*.mid
+dissertation-MVO/*.xml

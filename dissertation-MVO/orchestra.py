@@ -10,13 +10,12 @@ from Bio.SeqFeature import  SeqFeature
 from Bio import AlignIO
 from Bio import SeqIO, Phylo
 
-
 from Bio.Align import MultipleSeqAlignment
 from Bio.Phylo.PhyloXML import Phylogeny
 from Bio.Phylo.TreeConstruction import DistanceCalculator, DistanceTreeConstructor
 from Bio.Phylo import Consensus
 from Bio.Phylo.Applications import PhymlCommandline
-
+from __builtin__ import object
 
 from music21 import instrument, note, harmony, interval, key, duration
 from music21 import stream, defaults
@@ -26,8 +25,237 @@ import itertools
 from music21.instrument import StringInstrument, WoodwindInstrument, BrassInstrument, Percussion
 from xcb.shape import shapeExtension
 
-from api import *
+from api import GLOBALS
 
+import sys
+
+
+# abstract algorithms class
+# cannot be instantiated by itself
+class Algorithm(object):
+
+    def __init__(self, algorithm):
+        self.name = algorithm
+
+    def __repr__(self):
+        return self.name
+
+
+# pitch algorithms
+# supported types: [ dummy, discrete_sync, patternized ]
+class DurationsAlgorithm(Algorithm):
+
+    assures_sync = False
+
+    def __init__(self, name='frequencies', sync=True):
+        super.__init__(self)
+
+        assert name is not None
+        assert sync is not None
+
+        self.name = name
+        self.assures_sync = sync
+
+
+# pitch algorithms
+# supported types: [ word_distances, static_assign ]
+class PitchAlgorithm(Algorithm):
+
+    def __init__(self, name='word_distances', pitch_scale=None):
+        super.__init__(self)
+
+        assert name is not None
+        self.name = name
+
+
+# dynamics algorithms
+# supported types: [ 'gaps' ]
+class DynamicsAlgorithm(Algorithm):
+
+    def __init__(self, name='gaps'):
+
+        super.__init__(self)
+
+        assert name is not None
+        self.name = name
+
+
+# species clustering
+class ClusteringAlgorithm(Algorithm):
+
+    def __init__(self, algorithm):
+        super(ClusteringAlgorithm, self).__init__(algorithm)
+
+algorithms = {'instruments':['kmeans','hierarchical'],'pitch':['distances'], 
+                   'dynamics':['gaps'],'duration':['frequencies']}
+
+
+class Ensemble(object):
+
+    def __init__(self, mapper, alignment_file=True, **kwargs):
+
+        assert isinstance(mapper, Mapper)
+        assert mapper.ready_for_implementation()
+
+        if alignment_file:
+
+            assert 'alignment' in kwargs.keys()
+            self.alignment = kwargs['alignment']
+        else:
+
+            if 'fasta_file' not in kwargs.keys():
+                print('Missing input file for alignment')
+                sys.exit(0)
+
+            seq_file = kwargs['fasta_file']
+
+            if 'algorithm' not in kwargs.keys():
+                print('Missing alignment algorithm')
+
+            aln_algorithm = kwargs['algorithm']
+
+            seq_vector, n_seq = None, None
+
+            if 'seq_vector' not in kwargs.keys():
+
+                if 'n_seq' not in kwargs.keys():
+                    print('Missing explicit vector of sequences or maximum number of sequences')
+                    sys.exit(1)
+
+                n_seq = kwargs['n_seq']
+
+            else:
+                seq_vector = kwargs['seq_vector']
+
+            from api import gen_alignment
+            self.alignment = gen_alignment(seq_file, seq_vector=seq_vector, n_sequences=n_seq, algorithm=aln_algorithm)
+
+        self.mapper = mapper
+
+        """for x, y in mapper.items():
+
+            assert y in algorithms[x]
+
+            if x == 'instruments':
+
+                self.instrument_vector = ClusteringAlgorithm(y)
+
+            elif x == 'pitch':
+
+                self.pitch_vector = PitchAlgorithm(y)
+
+            elif x == 'duration':
+
+                self.durations_vector = DurationsAlgorithm(y)
+
+            elif x == 'dynamics':
+
+                self.dynamics_vector = DynamicsAlgorithm(y)"""
+
+    def assign_instruments(self, msa, nclusters=0):
+
+        assert isinstance(msa, MultipleSeqAlignment)
+
+        algorithm = self.mapper['instruments']
+
+        from api import get_clusters_from_alignment
+        return get_clusters_from_alignment(msa, algorithm=algorithm, nclusters=nclusters)
+
+    def gen_numerical_vectors(self, **kwargs):
+
+        msa = AlignIO.read(self.alignment)
+
+        window = 0
+        if 'window' in kwargs.keys():
+
+            window = kwargs['window']
+            assert isinstance(window, int) or isinstance(window, float)
+
+        window_duration = 0
+        if 'window_duration' in kwargs.keys():
+
+            window_duration = kwargs['window_duration']
+            assert isinstance(window_duration, int) or isinstance(window_duration, float)
+
+        from api import numeric_vectors, dynamics_algorithm
+
+        instruments = None
+        if 'nclusters' in kwargs.keys():
+
+            nclusters = kwargs['nclusters']
+            self.assign_instruments(msa, nclusters=nclusters)
+        else:
+            self.assign_instruments(msa)
+
+        if 'dynamics_window' not in kwargs.keys():
+            dynamics_window = None
+        else:
+            dynamics_window = kwargs['dynamics_window']
+
+        return instruments, dynamics_algorithm(msa, algorithm='entropy', window=dynamics_window),\
+               numeric_vectors(msa, block=window,
+                               block_duration=window_duration,
+                               duration_mapping=self.mapper['duration'],
+                               )
+    def play(self):
+        pass
+
+    def shuffle_instruments(self):
+        pass
+
+    def write_file(self, filename=None):
+        fw = FileWriter()
+        pass
+
+
+class Mapper(dict):
+
+    def __init__(self, **kwargs):
+
+        super(Mapper, self).__init__(**kwargs)
+
+        for x,y in kwargs.items():
+
+            if x not in algorithms:
+                print(x + ' is not a valid algorithm type')
+            else:
+                self[x] = y
+
+    def __getattr__(self, attr):
+        return self[attr]
+
+    def __setattr__(self, key, value):
+
+        assert isinstance(value, Algorithm)
+        assert key in algorithms
+
+        self[key] = value
+
+    def ready_for_implementation(self):
+
+        from collections import Counter
+        return Counter(algorithms) == Counter(self.keys())
+
+
+class FileWriter(object):
+
+    def __init__(self, ensemble):
+
+        assert ensemble is not None and isinstance(ensemble, Ensemble)
+        self.ensemble = ensemble
+
+def run():
+
+    algorithms_ = {'instruments':'kmeans','pitch':'','duration':'','dynamics':''}
+
+    mapper = Mapper(algorithms_)
+    ensemble = Ensemble(mapper)
+
+    fw = FileWriter(ensemble)
+
+    # app.run()
+    pass
+""""
 class Species(object):
 
     def __init__(self, sequence, mapping=default_mapping):
@@ -224,4 +452,4 @@ if __name__ == '__main__':
     #alignment_path = 'source_sequences/clustal_' + str(size) + ".aln"
 
     #orchestra = Orchestra(alignment, tree)
-    #orchestra.create_midi()
+    #orchestra.create_midi()"""""
