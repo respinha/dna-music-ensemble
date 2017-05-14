@@ -339,12 +339,15 @@ def dynamics_algorithm(msa, window=500, criteria='local', gap_threshold=0.7, n_l
         aln_len = np.alen(msa[0])
 
         from math import ceil
-        gaps_below_thresh = np.zeros((ceil(float(aln_len)/window))+1, dtype=np.bool)
+        n_windows = ceil(float(aln_len)/window)+1
+        gaps_below_thresh = np.zeros(n_windows, dtype=np.bool)
 
         window_idx = 0
+
         # first iterating through MSA to identify
         # which windows have a percentage of gaps
         # below the established threshold
+
         for i in range(0,aln_len, window):
 
             if i + window > aln_len: window = aln_len - i
@@ -364,10 +367,11 @@ def dynamics_algorithm(msa, window=500, criteria='local', gap_threshold=0.7, n_l
 
             window_idx += 1
 
-        n_windows = np.alen(np.where(gaps_below_thresh)[0])
+        # n_windows = np.alen(np.where(gaps_below_thresh)[0])
 
         from scipy.stats import entropy
 
+        # dynamics_vector = np.zeros((n_windows,),
         dynamics_vector = np.zeros((n_windows,),
                                    dtype=[('entropy', np.float), ('vol', np.float)])
 
@@ -379,8 +383,8 @@ def dynamics_algorithm(msa, window=500, criteria='local', gap_threshold=0.7, n_l
 
             # if this window has a percentage of gaps
             # above the considered threshold
-            # TODO: handle gaps; maybe include rests (0) in dynamics_vector?
             if not gaps_below_thresh[entropies_idx]:
+                dynamics_vector['entropy'][entropies_idx] = -1
                 continue
 
             local_entropy = np.zeros((window,))
@@ -425,17 +429,17 @@ def dynamics_algorithm(msa, window=500, criteria='local', gap_threshold=0.7, n_l
         split_info = np.array_split(np.sort(np.unique(entropies)), n_levels)   # splitting info into classes
         volumes = np.linspace(min_vol, max_vol, num=n_levels)                # vector with all possible volumes
 
-        print volumes
-        for i in range(0, n_windows):
+        for i in range(0, int(n_windows)):
 
             for j in range(0, np.alen(split_info)):
-                if entropies[i] <= split_info[j][-1]:
+                if entropies[i] == -1:
+                    dynamics_vector['vol'][i] = -1
+                elif entropies[i] <= split_info[j][-1]:
 
-                    dynamics_vector[i]['vol'] = volumes[j]
+                    dynamics_vector['vol'][i] = volumes[j]
                     break
 
         return dynamics_vector, n_windows
-
 
 # returns a tuple containing:
 #   - a word distance vector per word (A,C,G,T)
@@ -979,10 +983,9 @@ if __name__ == "__main__":
     # gen_random_seqs(8, 40, rnd_file)
     # aln = gen_alignment(rnd_file, n_sequences=8)
 
-    msa = AlignIO.read('output.fasta', 'clustal')
+    # TODO: test and debug
+    msa = AlignIO.read(SEQ_DIR + '/mafft_164358.fasta', 'clustal')
     msa = np.array([np.array(seq) for seq in msa])
-
-    # plt.plot(np.array([H for H in ]))
 
     d_vector, windows = dynamics_algorithm(msa, window=1500)
 
@@ -992,7 +995,6 @@ if __name__ == "__main__":
     plt.bar(left, height)
     plt.show()
     plt.close()
-
 
     """
     TEST_FILE_2 = SEQ_DIR + '/mafft_164358.fasta'
