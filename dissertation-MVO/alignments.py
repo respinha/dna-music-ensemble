@@ -30,7 +30,7 @@ def short(i):
 
 
 def align(n_sequences, algorithm='clustal'):
-    cline = None
+
     sequence_file = 'source_sequences/short_version' + str(n_sequences) + '.fna'
 
     try:
@@ -75,8 +75,30 @@ def align(n_sequences, algorithm='clustal'):
 
     ###########################################
 
+def gen_random_seqs(n, MAX):
 
+    import numpy as np
+    short_version = []
 
+    with open('source_sequences/mitochondrion.1.1.genomic.fna', 'rU') as handle:
+        seq_iterator = SeqIO.parse(handle, 'fasta')
+
+        i = 0
+        for record in seq_iterator:
+            if i > MAX:
+                break
+            else:
+                short_version.append(record)
+            i += 1
+
+    from random import shuffle
+    shuffle(short_version)
+
+    SeqIO.write(short_version[:n], 'test.fasta', 'fasta')
+
+gen_random_seqs(10, 40)
+
+"""""
 for i in range(3, 12):
 
     short(i)
@@ -85,7 +107,7 @@ for i in range(3, 12):
     align(i, 'muscle')
     align(i, 'mafft')
 
-"""tree = Phylo.read('short_version.dnd', 'newick')
+tree = Phylo.read('short_version.dnd', 'newick')
 print tree
 
 Phylo.draw_ascii(tree)"""

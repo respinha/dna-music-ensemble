@@ -53,7 +53,7 @@ output/*
 source_sequences/
 source_sequences/*
 
-test_music.py
+tests.py
 *.png
 *.xml
 *.mid

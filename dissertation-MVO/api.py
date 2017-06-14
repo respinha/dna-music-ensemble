@@ -1,3 +1,4 @@
+
 from __future__ import division
 
 import subprocess
@@ -27,33 +28,13 @@ from Bio.Phylo.TreeConstruction import DistanceCalculator
 
 from matplotlib import pyplot as plt
 
-from music21 import note, scale, instrument, stream, duration
-from music21.instrument import StringInstrument, WoodwindInstrument, BrassInstrument, PitchedPercussion
+from music21 import note, scale, instrument, stream, duration, tempo
+from music21.instrument import StringInstrument, WoodwindInstrument, BrassInstrument, PitchedPercussion, Instrument
 from music21 import Music21Object
-from music21 import midi
 
+from algorithms import *
+from config import GLOBALS, MIN_TEMPO
 
-CURR_DIR = os.path.dirname(os.path.abspath(__file__))
-SEQ_DIR = CURR_DIR + "/source_sequences"
-OUTPUT_FILES = CURR_DIR + '/output_files'
-MIN_TEMPO = 0.0625  # 64th
-
-aln = lambda n: SEQ_DIR + '/mafft_' + str(n) + '.fasta'
-
-GLOBALS = {'MEME_URL' : 'http://meme-suite.org/opal2/services/MEME_4.11.2',
-           'SUPPORTED ALGORITHMS' : ['clustal', 'mafft', 'muscle'],
-           'MAPPINGS' : {0: 'NO_SYNC', 1: 'SYNC_BLOCK_DURATION',2:'SYNC_BLOCL_DURATION_DISCRETE',3:'DURATION_WITH_DISTANCES'},
-           'ALPHABET' : ['a', 'c', 'g', 't', '-'],
-           'MUSE_SCORE' :   '/usr/bin/mscore',
-           'FAMILIES' : {0: StringInstrument, 1: WoodwindInstrument,
-                                  2: BrassInstrument, 3: PitchedPercussion},
-           'SCORES' :   OUTPUT_FILES + '/scores',
-           'MIDI' :   OUTPUT_FILES + '/midi',
-           'AUDIO'  :   OUTPUT_FILES + '/audio',
-           'HIST_DURATIONS' :   OUTPUT_FILES + '/stats/durations',
-            'HIST_NOTES' :   OUTPUT_FILES + '/stats/notes',
-           'ALIGNMENT_PARAMS' : ['fasta_file', 'seq_vector', 'n_seq', 'algorithm'],
-           }
 
 def read_phylo_tree(sequence_file):
     tree = Phylo.read(sequence_file.split('.')[0] + '.dnd', 'newkick')
@@ -208,8 +189,7 @@ def get_distance_matrix(msa):
 def get_clusters_from_alignment(msa, **kwargs):
     
     assert isinstance(msa, MultipleSeqAlignment)
-    # assert isinstance(depth, int) and depth > 0
-    
+
     print 'Retrieving distance matrix'
     dm = get_distance_matrix(msa)
 
@@ -280,6 +260,8 @@ def get_clusters_from_alignment(msa, **kwargs):
             instruments[i] = instruments_pool[cluster]
             i += 1
 
+        return instruments
+
     return None
 
 
@@ -331,206 +313,302 @@ def msa_to_phylip(msa):
     return out_file
 
 
-def dynamics_algorithm(msa, window=500, criteria='local', gap_threshold=0.7, n_levels=5):
+def gen_dynamics_vector(msa, dynamics_algorithm):
 
-        # criteria: local, avg ou median entropy
-        assert 'window' is not None and window > 0, 'Empty window for dynamics algorithm'
+    # criteria: local, avg ou median entropy
+    assert isinstance(dynamics_algorithm, DynamicsAlgorithm)
+    assert 'window_size' in dynamics_algorithm.keys(), 'Empty window for dynamics algorithm'
+    assert dynamics_algorithm['algorithm'] == DynamicsAlgorithm.SHANNON_INDEX # todo: only one option for now; implement simpson index afterwards
 
-        aln_len = np.alen(msa[0])
+    window = dynamics_algorithm['window_size']
 
-        from math import ceil
-        n_windows = ceil(float(aln_len)/window)+1
-        gaps_below_thresh = np.zeros(n_windows, dtype=np.bool)
+    if 'gap_threshold' not in dynamics_algorithm.keys():
+        gap_threshold = 0.7
+    else:
+        gap_threshold = dynamics_algorithm['gap_threshold']
 
-        window_idx = 0
+    if 'criteria' not in dynamics_algorithm.keys():
+        criteria = 'local'
+    else:
+        criteria = dynamics_algorithm['criteria']
 
-        # first iterating through MSA to identify
-        # which windows have a percentage of gaps
-        # below the established threshold
+    if 'levels' not in dynamics_algorithm.keys():
+        levels = 5
+    else:
+        levels = dynamics_algorithm['levels']
 
-        for i in range(0,aln_len, window):
+    aln_len = np.alen(msa[0])
 
-            if i + window > aln_len: window = aln_len - i
+    from math import ceil
 
-            local_is_below_threshold = np.zeros((window,), dtype=np.bool)
-            for j in range(i, i+window):
+    n_windows = ceil(float(aln_len)/window)+1
+    gaps_below_thresh = np.zeros(n_windows, dtype=np.bool)
 
-                column = np.array([c for c in msa[:,j]])
+    window_idx = 0
 
-                n_gaps = float(np.count_nonzero(column == '-'))
+    # first iterating through MSA to identify
+    # which windows have a percentage of gaps
+    # below the established threshold
 
-                if n_gaps / len(column) < gap_threshold:
-                    local_is_below_threshold[j-i] = True
+    for i in range(0,aln_len, window):
 
-            if np.alen(np.where(local_is_below_threshold)) < 0.7 * window:
-                gaps_below_thresh[window_idx] = True
+        if i + window > aln_len: window = aln_len - i
 
-            window_idx += 1
+        local_is_below_threshold = np.zeros((window,), dtype=np.bool)
+        for j in range(i, i+window):
 
-        # n_windows = np.alen(np.where(gaps_below_thresh)[0])
+            column = np.array([c for c in msa[:,j]])
 
-        from scipy.stats import entropy
+            n_gaps = np.count_nonzero(column == '-')
 
-        # dynamics_vector = np.zeros((n_windows,),
-        dynamics_vector = np.zeros((n_windows,),
-                                   dtype=[('entropy', np.float), ('vol', np.float)])
+            if float(n_gaps) / len(column) < gap_threshold:
+                local_is_below_threshold[j-i] = True
 
-        entropies_idx = 0
+        n_ungapped_regions = np.alen(np.where(local_is_below_threshold)[0])
 
-        for i in range(0, aln_len, window):
+        if n_ungapped_regions < gap_threshold * window:
+            gaps_below_thresh[window_idx] = True
 
-            if i + window > aln_len: window = aln_len - i
+        window_idx += 1
 
-            # if this window has a percentage of gaps
-            # above the considered threshold
-            if not gaps_below_thresh[entropies_idx]:
-                dynamics_vector['entropy'][entropies_idx] = -1
-                continue
+    from scipy.stats import entropy
 
-            local_entropy = np.zeros((window,))
+    # dynamics_vector = np.zeros((n_windows,),
+    dynamics_vector = np.zeros((n_windows,),
+                               dtype=[('entropy', np.float), ('vol', np.float)])
 
-            for j in range(i, i+window):
+    entropies_idx = 0
 
-                column = msa[:, j]
+    for i in range(0, aln_len, window):
 
-                column_symbols = column[np.where(column != '-')]
+        if i + window > aln_len: window = aln_len - i
 
-                if len(column_symbols) < (1-gap_threshold) * len(column):
+        # if this window has a percentage of gaps
+        # above the considered threshold
+        if not gaps_below_thresh[entropies_idx]:
+            dynamics_vector['entropy'][entropies_idx] = -1
+            continue
 
-                    # apply thresholding +
-                    pass
-                else:
-                    # Shannon entropy of all column symbols
+        local_entropy = np.zeros((window,))
 
-                    counts = itemfreq(column_symbols)
-                    counts = np.array([float(count) for count in counts[:,1]])
+        for j in range(i, i+window):
 
-                    counts /= np.sum(counts)
+            column = msa[:, j]
 
-                    local_entropy[j-i] = entropy(counts, base=2)
+            column_symbols = column[np.where(column != '-')]
 
-            if criteria == 'local':
-                dynamics_vector['entropy'][entropies_idx] = np.sum(local_entropy)
-            elif criteria == 'average':
-                dynamics_vector['entropy'][entropies_idx] = np.average(local_entropy)
-            elif criteria == 'median':
-                dynamics_vector['entropy'][entropies_idx] = np.median(local_entropy)
+            if len(column_symbols) < (1-gap_threshold) * len(column):
+
+                # apply thresholding +
+                pass
             else:
-                print 'Unsupported criteria ' + str(criteria) + ' for entropy aggregation'
-                sys.exit(1)
+                # Shannon entropy of all column symbols
 
-            entropies_idx += 1
+                counts = itemfreq(column_symbols)
+                counts = np.array([float(count) for count in counts[:,1]])
 
-        max_vol = 0.95
-        min_vol = 0.30
+                counts /= np.sum(counts)
 
-        entropies = dynamics_vector['entropy']
+                local_entropy[j-i] = entropy(counts, base=2)
 
-        split_info = np.array_split(np.sort(np.unique(entropies)), n_levels)   # splitting info into classes
-        volumes = np.linspace(min_vol, max_vol, num=n_levels)                # vector with all possible volumes
+        if criteria == 'local':
+            dynamics_vector['entropy'][entropies_idx] = np.sum(local_entropy)
+        elif criteria == 'average':
+            dynamics_vector['entropy'][entropies_idx] = np.average(local_entropy)
+        elif criteria == 'median':
+            dynamics_vector['entropy'][entropies_idx] = np.median(local_entropy)
+        else:
+            print 'Unsupported criteria ' + str(criteria) + ' for entropy aggregation'
+            sys.exit(1)
 
-        for i in range(0, int(n_windows)):
+        entropies_idx += 1
 
-            for j in range(0, np.alen(split_info)):
-                if entropies[i] == -1:
-                    dynamics_vector['vol'][i] = -1
-                elif entropies[i] <= split_info[j][-1]:
+    max_vol = 0.95
+    min_vol = 0.30
 
-                    dynamics_vector['vol'][i] = volumes[j]
-                    break
+    entropies = dynamics_vector['entropy']
 
-        return dynamics_vector, n_windows
+    split_info = np.array_split(np.sort(np.unique(entropies)), levels)   # splitting info into classes
+    volumes = np.linspace(min_vol, max_vol, num=levels)                # vector with all possible volumes
+
+    for i in range(0, int(n_windows)):
+
+        for j in range(0, np.alen(split_info)):
+            if entropies[i] == -1:
+                dynamics_vector['vol'][i] = -1
+            elif entropies[i] <= split_info[j][-1]:
+
+                dynamics_vector['vol'][i] = volumes[j]
+                break
+
+    return dynamics_vector
+
+
+def add_dynamics_to_score(dynamics_vector, score, window_size, max_rest_tempo=3):
+
+    assert isinstance(score, stream.Score) and isinstance(dynamics_vector, np.ndarray)
+
+    # assert length == np.alen(score), 'Vectors lengths do not match when adding dynamics to score: score part length is ' + str(length) \
+    #                                    + ' and score length is ' + str(np.alen(score))
+
+    vol_idx = 0
+    score_tempo = score.getElementsByClass(tempo.MetronomeMark)[0]
+
+    # creating filtered score
+    # starting with empty parts
+    final_score = stream.Score()
+    length = np.inf
+
+    for p in range(0, len(score.parts)):
+
+        if len(score.parts[p]) < length:
+            length = len(score.parts[p])
+
+        part = stream.Part()
+        part.insert(0, score_tempo)
+
+        final_score.append(part)
+
+    # iterating through a music score in chunks of 'window_size' length
+    print 'Len', length
+    """for i in range(0, len(score.parts)):
+
+        part = score.parts[i]
+
+        vol_idx = 0"""
+
+    for i in range(0, length, window_size):
+        window_size = length - i if i + window_size > length else window_size
+
+        if dynamics_vector[vol_idx] == 0:
+            r = note.Rest()
+
+            for part in final_score.parts:
+                part.append(r)
+                part[-1].seconds = max_rest_tempo
+
+        else:
+            # iterating over parts
+            for j in range(0, len(final_score.parts)):
+
+                # scores have same number of parts
+                final_part = final_score.parts[j]
+                part = score.parts[j]
+
+                for k in range(i, i + window_size):
+
+                    n = part[k]
+                    if isinstance(n, note.GeneralNote):  # if Note or Rest
+
+                        final_part.append(n)
+                        if isinstance(n, note.Note):  # if Note
+                            final_part[-1].volume = dynamics_vector[vol_idx]
+
+        vol_idx += 1
+
+    """for i in range(0, length, window_size):
+
+        for p in range(0, len(final_score.parts)):
+
+            final_part = final_score.parts[p]
+            part = score.parts[p]
+            for n in part:
+
+                if isinstance(n, note.GeneralNote):
+
+                    final_part.append(n)
+                    if isinstance(n, note.Note):
+                        final_part[-1].volume = dynamics_vector[vol_idx]"""
+
+    assert np.alen(final_score.parts) == np.alen(score.parts) # and final_score.seconds <= score.seconds
+
 
 # returns a tuple containing:
 #   - a word distance vector per word (A,C,G,T)
 #   - a label array with the assigned duration of each nucleotide
-def numeric_vectors(sequence, block=5, **kwargs):
+def gen_pitch_duration_vectors(sequence, pitch_algorithm, durations_algorithm):
 
     # kwargs:
-    #   - block_duration
+    #   - window_duration
     #   - step
     #   - duration_mapping
 
+    assert isinstance(pitch_algorithm, PitchAlgorithm) and isinstance(durations_algorithm, DurationsAlgorithm)
     assert sequence is not None
 
     # step is the number of columns/characters that are mapped
-    if 'step' in kwargs:
-        step = kwargs['step']
-        if not isinstance(step, int):
-            print 'Invalid step introduced. Using default value 1.'
-            step = 1
-    else:
-        step = 1
-
-    if 'duration_mapping' in kwargs:
-        d_mapping = kwargs['duration_mapping']
-
-        assert isinstance(d_mapping, int) and d_mapping in GLOBALS['MAPPINGS'].keys(),\
-                                    "Invalid mapping: " + str(d_mapping)
-    else:
-        d_mapping = 0
-
-    if d_mapping > 0:
-        assert 'block_duration' in kwargs, 'No time was assigned for each block of words'
-
-        block_duration = kwargs['block_duration']
-        assert isinstance(block_duration, int) or isinstance(block_duration, float)
-
-        if not isinstance(block_duration, float): block_duration = float(block_duration)
-
-    length = len(sequence)
+    length = np.alen(sequence)
 
     # auxiliary structures
     distance_vectors = dict()  # keys are nucleotides; values are np arrays
     last_occurrence = dict()  # aux dict used for word distances
 
-    if d_mapping == 0:
-        # fixed size array of labels
-        durations = np.chararray((length,), itemsize=10)  # aux vector used for durations
-    elif d_mapping == 1 or d_mapping == 2:
-        # fixed size array of floats
-        durations = np.zeros((length,), dtype=np.float)
+    step = 1
+    window = 1500
+    window_duration = 8
 
-    """elif d_mapping == 3:
-        # TODO: not efficient; reimplement in next week
+    for key in durations_algorithm.keys():
+        if key == 'n_nucleotides':
+            step = durations_algorithm['n_nucleotides']
+            assert isinstance(step, int) and step > 0
 
-        print 'Global itemfrequency'
-        global_itemfreq = itemfreq(sequence)
+        elif key == 'window_size':
+            window = durations_algorithm['window_size']
+            assert isinstance(window, int) and window > 0
 
-        durations = {x[0]: [np.zeros(int(x[1])), 0] for x in global_itemfreq}"""
+        elif key == 'window_duration':
+            window_duration = durations_algorithm['window_duration']
+            assert (isinstance(window_duration, float) or isinstance(window_duration, int)) and window > 0
 
-    for i in range(0, length, block):
+    if 'n_nucleotides' in pitch_algorithm.keys():
+        # TODO: implementar para N nucleotidos
+        assert step == pitch_algorithm['n_nucleotides']
 
-        if i + block <= len(sequence):
-            boundary = i + block
+    d_algorithm = durations_algorithm['algorithm']
+    p_algorithm = pitch_algorithm['algorithm']
+
+    # durations vector
+    durations = np.zeros((length,), dtype=np.float)
+
+    for i in range(0, length, window):
+
+        if i + window <= length:
+            boundary = i + window
         else:
-            boundary = len(sequence)
+            boundary = i + (length - i)
 
+        # retrieving region to calculate relative frequencies
         subset = sequence[i:boundary]
 
-        # Frequency/durations depend on selected mapping
         # grouping frequencies of A,C,G,T  within a block
-        # distributions = {l: float(len(filter(lambda y: y == l, subset))) / block for l in alphabet}
         counts = dict(itemfreq(subset))
 
-        if d_mapping == 1:
+        # This algorithm assigns durations dynamically to nucleotides
+        # based on their relative frequency
+        if d_algorithm == durations_algorithm.FREQUENCIES_DYNAMIC:
 
             counts_sum = 0
+
             for j in range(i, boundary):
                 counts_sum += int(counts[subset[j-i]])
 
         total_time = 0.0
+
         for j in range(i, boundary, step):
 
-            # word distances
-            letter = sequence[j]
+            # pitch algorithm
+            if p_algorithm == PitchAlgorithm.WORD_DISTANCES:
 
-            if letter not in distance_vectors.keys():
-                distance_vectors[letter] = []
+                # TODO: fazer uma primeira passagem pela sequencia inteira
+                # para saber o numero exato de nucleotidos e reservar np.arrays??
+                letter = sequence[j]
 
-            else:
-                diff = j - last_occurrence[letter]
-                distance_vectors[letter].append(diff)
+                if letter not in distance_vectors.keys():
+                    distance_vectors[letter] = []
+
+                else:
+                    diff = j - last_occurrence[letter]
+                    distance_vectors[letter].append(diff)
 
                 """if d_mapping == 3:
                     idx = durations[letter][1]
@@ -541,14 +619,16 @@ def numeric_vectors(sequence, block=5, **kwargs):
 
                     total_time += float(diff)"""
 
-            last_occurrence[letter] = j
+                last_occurrence[letter] = j
 
-            # word frequencies
+            # durations algorithm
 
             local_count = int(counts[subset[j - i]])
             freq = float(local_count) / len(subset)
 
-            if d_mapping == 0:
+            """
+                TODO: considerar isto?
+                if d_mapping == 0:
 
                 duration_labels = {0.25: 'eighth', 0.5: 'quarter', 0.75: 'half', 1.0: 'whole'}
                 local_duration = 'eighth'
@@ -560,19 +640,26 @@ def numeric_vectors(sequence, block=5, **kwargs):
                     if k > freq:
                         local_duration = duration_labels[k]
                         break
+            """
 
+            # frequency-biased algorithms
+            if d_algorithm == DurationsAlgorithm.FREQUENCIES_DYNAMIC:
 
-            # duration-biased algorithms
-            elif d_mapping == 1:
+                assert counts_sum is not None and counts_sum > 0, 'Inconsistent values for counts of characters in region'
 
-                local_duration = float(block_duration) * float(local_count) / float(counts_sum)
+                local_duration = float(window_duration) * float(local_count) / float(counts_sum)
                 total_time += local_duration
 
-                assert local_duration > MIN_TEMPO, \
-                    'Higher tempo required for each subsequence; too short duration was calculated: ' + str(local_duration)
+                # assert local_duration > MIN_TEMPO, \
+                #    'Higher tempo required for each subsequence; too short duration was calculated: ' + str(local_duration)
 
-            # duration biased with discrete atributions
-            elif d_mapping == 2:
+                # todo: test
+                if local_duration < MIN_TEMPO:
+                    # print 'WARNING: Converting local duration to minimum tempo!'
+                    local_duration = MIN_TEMPO
+
+            # duration biased with discrete attributions
+            elif d_algorithm == DurationsAlgorithm.FREQUENCIES_DISCRETE:
 
                 duration_labels = np.array(['32nd','16th','eighth','quarter','half','whole'])
                 frequencies = np.linspace(0.0, 0.5, num=len(duration_labels)-1)
@@ -594,7 +681,7 @@ def numeric_vectors(sequence, block=5, **kwargs):
                 total_time += local_duration
 
             else:
-                print 'Invalid mapping introduced: ', str(d_mapping)
+                print 'Invalid mapping introduced: ', d_algorithm['algorithm']
                 raise NotImplementedError
 
             durations[j] = local_duration
@@ -602,11 +689,11 @@ def numeric_vectors(sequence, block=5, **kwargs):
         # if d_mapping > 0 and d_mapping < 3:
         #     total = np.sum([durations[j] for j in range(i, boundary)])
 
-        if d_mapping == 2:
+        if d_algorithm == DurationsAlgorithm.FREQUENCIES_DISCRETE:
 
-            if round(float(total_time), 5) != round(float(block_duration), 5):
+            if round(float(total_time), 5) != round(float(window_duration), 5):
 
-                ratio = float(block_duration) / float(total_time)
+                ratio = float(window_duration) / float(total_time)
                 total_time = 0.0
                 for j in range(i, boundary):
                     durations[j] *= ratio
@@ -618,9 +705,9 @@ def numeric_vectors(sequence, block=5, **kwargs):
 
         """elif d_mapping == 3:
 
-            if round(float(total_time), 5) != round(float(block_duration), 5):
+            if round(float(total_time), 5) != round(float(window_duration), 5):
 
-                ratio = float(block_duration) / float(total_time)
+                ratio = float(window_duration) / float(total_time)
                 total_time = 0.0
 
                 print subset
@@ -637,36 +724,44 @@ def numeric_vectors(sequence, block=5, **kwargs):
 
                         assert sub_array[j] >= MIN_TEMPO, \
                         'Higher tempo required for each subsequence; too short duration was calculated: ' + str(sub_array[j])
-        """
+
+
         if d_mapping > 0:
-            assert round(float(total_time), 5) == round(float(block_duration), 5), \
-                'Durations don\'t  match: ' + str(float(total_time)) + ' ' + str(float(block_duration))
+            assert round(float(total_time), 5) == round(float(window_duration), 5), \
+                'Durations don\'t  match: ' + str(float(total_time)) + ' ' + str(float(window_duration))"""
 
     for x, y in iter(distance_vectors.items()):
+
         diff = length - last_occurrence[x]
         distance_vectors[x].append(diff)
 
+    d_vectors_len = 0
     for x in iter(distance_vectors.keys()):
+
         distance_vectors[x] = np.array(distance_vectors[x])
+        d_vectors_len += np.alen(distance_vectors[x])
+
+    assert d_vectors_len == length, "Lengths don't match: sequence length = " + str(length) + "; d_vectors length: " + str(d_vectors_len)
 
     # (distances, frequencies per N words)
     # print distance_vectors, frequencies
     return distance_vectors, durations
 
 
-def gen_stream(score, sequence, block=10,
-               assigned_instr=instrument.Violin(), duration_mapping=0, **kwargs):
+def gen_stream(score, sequence, pitch_algorithm, durations_algorithm, assigned_instrument, score_tempo):
 
     # keyworded arguments:
-    #   block_duration
+    #   window_duration
     #   step
     #   signal_gap
 
-    if 'block_duration' in kwargs:
-        block_duration = kwargs['block_duration']
-        assert isinstance(block_duration, int) or isinstance(block_duration, float)
+    assert isinstance(pitch_algorithm, PitchAlgorithm) and isinstance(durations_algorithm, DurationsAlgorithm)
+
+    """if 'window_duration' in kwargs:
+        window_duration = kwargs['window_duration']
+        assert isinstance(window_duration, int) or isinstance(window_duration, float)
     else:
-        block_duration = -1
+        window_duration = -1
 
     if 'step' in kwargs:
         step = kwargs['step']
@@ -677,30 +772,33 @@ def gen_stream(score, sequence, block=10,
     if 'signal_gap' in kwargs:
         signal_gap = kwargs['signal_gap']
         if signal_gap is True:
-            raise NotImplementedError
+            raise NotImplementedError"""
 
-    dv, durations = numeric_vectors(sequence, block_duration=block_duration,
-                                    block=block, step=step, duration_mapping=duration_mapping)
+    dv, durations = gen_pitch_duration_vectors(sequence, pitch_algorithm, durations_algorithm)
 
-    # print sequence
+    print len(sequence)
+
     for x in dv.keys():
-        # print len(dv[x])
         dv[x] = iter(dv[x])
 
     # print durations
     durations = iter(durations)
 
+    # TODO: integrar esta parte no algoritmo anterior para poupar iteracoes
     scale_len = len(scale.MajorScale().getPitches())
     s = scale.MajorScale()
 
     part = stream.Part()
-    print assigned_instr
 
-    part.insert(0, assigned_instr)
+    assert isinstance(score_tempo, tempo.MetronomeMark) and score_tempo == score.getElementsByClass(tempo.MetronomeMark)[0]
+    assert isinstance(assigned_instrument, Instrument)
+    print assigned_instrument
+
+    part.insert(0, score_tempo)
+    part.insert(0, assigned_instrument)
 
     print 'Assigning notes and durations from numeric vectors...'
 
-    c = 0
     for l in sequence:
 
         pitch = dv[l].next()
@@ -737,82 +835,46 @@ def gen_stream(score, sequence, block=10,
     print 'Done'
 
 
-def gen_song(input_alignment=None, alignment_parameters=None, duration_mapping=0, **kwargs):
-    # kwargs:
-    #   output_midi=None
-    #   output_score=None
-    #   show_score=Fals,
-    #   audio=None,
-    #   block=10
-    #   block_duration=3
+def gen_song(pitch_algorithm, durations_algorithm, dynamics_algorithm, alignment, instruments):
 
-    assert (input_alignment is not None) ^ (alignment_parameters is not None), \
-        'Cannot choose alignment file and sequences to align simultaneously'
+    ####### ALIGNMENT HANDLING ##############
+    assert (alignment is not None), 'No MSA provided'
 
-    if input_alignment is not None:
+    assert alignment \
+           and (isinstance(alignment, MultipleSeqAlignment) or
+                (isinstance(alignment, str) and os.path.isfile(alignment)))
 
-        print 'Converting from clustal format to phylip...'
-        aln_file = msa_to_phylip(input_alignment)
-    else:
-        assert isinstance(alignment_parameters, dict)
+    if isinstance(alignment, str):
 
-        if 'fasta_file' not in alignment_parameters.keys():
-            print 'Missing input file for alignment'
-            sys.exit(0)
-        seq_file = alignment_parameters['fasta_file']
-
-        if 'algorithm' not in alignment_parameters.keys():
-            print 'Missing alignment algorithm'
-        algorithm = alignment_parameters['algorithm']
-
-        seq_vector, n_seq = None, None
-        if 'seq_vector' not in alignment_parameters.keys():
-            if 'n_seq' not in alignment_parameters.keys():
-                print 'Missing explicit vector of sequences or maximum number of sequences'
-            else:
-                n_seq = alignment_parameters['n_seq']
-        else:
-            seq_vector = alignment_parameters['seq_vector']
-
-        gen_alignment(seq_file, seq_vector=seq_vector, n_sequences=n_seq, algorithm=algorithm)
-        aln_file = AlignIO.read(open(seq_file.split('.')[0] + '.aln', 'rU'), algorithm)
+        print 'Reading alignment...'
+        aln_file = AlignIO.read(open(alignment, 'rU'), 'clustal')
         aln_file = msa_to_phylip(aln_file)
 
-    # TODO: insert clustering
-    instruments = [instrument.Violin(), instrument.Flute()]
+        print 'Opening phylip file...'
+        alignment = AlignIO.read(open(aln_file.split('.')[0] + ".phy"), 'phylip-relaxed')
+
     score = stream.Score()
 
-    print 'Opening phylip file...'
-    alignment = AlignIO.read(open(aln_file.split('.')[0] + ".phy"), 'phylip-relaxed')
+    # TODO: Make dynamic
+    score_tempo = tempo.MetronomeMark('adagio', 120)
+    score.insert(0, score_tempo)
 
-    print 'Generating score parts...'
-
-    if 'block_duration' not in kwargs:
-        block_duration = 4
-    else:
-        assert isinstance(kwargs['block_duration'], int) and kwargs['block_duration'] > 0
-        block_duration = kwargs['block_duration']
-
-    if 'block' not in kwargs:
-        block = 10
-    else:
-        assert isinstance(kwargs['block'], int) #and kwargs['block'] > block_duration
-        block = kwargs['block']
+    print 'Generating pitches and durations...'
 
     i = 0
-    sequence_names = np.chararray((len(alignment),), itemsize=25)
 
     for record in alignment:
 
-        sequence_names[i] = record.description
-        gen_stream(score, record.seq[:400], block=block,
-                   assigned_instr=instruments[i], duration_mapping=duration_mapping,
-                   block_duration=block_duration)
+        gen_stream(score, record.seq, pitch_algorithm, durations_algorithm, instruments[i], score_tempo)
         i += 1
 
-    print 'Checking if parts have the same time...'
+    print 'Checking if parts have the same total duration...'
+
+    # aligning part durations (score or midi cannot be produced with unequal duration parts)
     for part in score.parts:
 
+        # obtaining highest duration from all parts
+        # and aligning with it
         diff = score.highestTime - part.highestTime
 
         if diff > 0:
@@ -830,130 +892,24 @@ def gen_song(input_alignment=None, alignment_parameters=None, duration_mapping=0
                     else:
                         n.duration = duration.Duration(MIN_TEMPO)
 
-                assert n.duration.quarterLength > MIN_TEMPO
+                assert n.duration.quarterLength >= MIN_TEMPO
+
                 part.append(n)
                 diff = score.highestTime - part.highestTime
 
-    print 'Generating durations histograms'
+    # dynamics_vector = gen_dynamics_vector(msa, dynamics_algorithm)
+    dynamics_vector = gen_dynamics_vector(alignment, dynamics_algorithm)
 
-    if not os.path.isdir(GLOBALS['HIST_DURATIONS']):
-        if not os.path.isdir(OUTPUT_FILES + '/stats'):
-            os.makedirs(OUTPUT_FILES + '/stats')
-        os.makedirs(GLOBALS['HIST_DURATIONS'])
+    volumes = dynamics_vector['vol']
 
-    if input_alignment is not None:
+    window_size = dynamics_algorithm['window_size']
+    add_dynamics_to_score(volumes, score, window_size)
 
-        hist_dir = input_alignment.split('.')[0].split('/')[-1]
+    # TODO: so esta a ser gerada uma score; futuro: gerar varias cada uma com o seu tempo
 
-    if 'output_midi' in kwargs:
-        output_midi = kwargs['output_midi']
-        assert isinstance(output_midi, str)
-
-        durations_dir = GLOBALS['HIST_DURATIONS'] + '/' + output_midi
-        notes_dir = GLOBALS['HIST_NOTES'] + '/' + output_midi
-
-        if not os.path.isdir(durations_dir):
-            os.makedirs(durations_dir)
-
-        if not os.path.isdir(notes_dir):
-            os.makedirs(notes_dir)
-
-    if not os.path.isdir(durations_dir + '/' + hist_dir):
-        os.makedirs(durations_dir + '/' + hist_dir)
-
-    if not os.path.isdir(notes_dir + '/' + hist_dir):
-        os.makedirs(notes_dir + '/' + hist_dir)
-
-    i = 0
-    for part in score.parts:
-
-        durations_notes = np.array([(float(x.duration.quarterLength), x.name) for x in part
-                                    if not isinstance(x, instrument.Instrument)],
-                                   dtype=[('durations', np.float,), ('notes', 'S5')])
-
-        durations = durations_notes['durations'] # first column
-        notes = durations_notes['notes']
-        # print notes
-
-        plt.hist(durations, color='b')
-        plt.savefig(durations_dir + '/' + hist_dir + '/' + sequence_names[i])
-        plt.close()
-
-        from collections import Counter
-        # import pandas
-
-        counts = Counter(notes)
-        # df = pandas.DataFrame.from_dict(counts, orient='index')
-        # print df[0]
-
-        note_names = counts.keys()
-        note_values = counts.values()
-
-        width = 1.0
-        idx = np.arange(len(note_names))
-        plt.bar(idx, note_values, width)
-        plt.xticks(idx + width * 0.5, note_names)
-        plt.savefig(notes_dir + '/' + hist_dir + '/' + sequence_names[i])
-        plt.close()
-
-        i += 1
-
-    print 'Checking output parameters...'
-    if 'output_score' in kwargs:
-
-        output_score = kwargs['output_score']
-        assert isinstance(output_score, str)
-
-        print 'Writing score...'
-
-        """for part in score.parts:
-            for n in part:
-                # assert float() >= 0.001953125
-                if not isinstance(n, instrument.Instrument):
-                    print n.quarterLength"""
-
-        # lily already inserts extension in filename
-        output_score = output_score[:-4] if output_score.endswith('.pdf') else output_score
-
-        score.write('lily.pdf', fp=GLOBALS['SCORES'] + '/' + output_score)
-
-        to_unlink = GLOBALS['SCORES'] + '/' + output_score
-        if os.path.isfile(to_unlink):
-            os.unlink(to_unlink)
-
-    if 'output_midi' in kwargs:
-
-        output_midi = kwargs['output_midi']
-        assert isinstance(output_midi, str)
-
-        print 'Writing midi...'
-        if not output_midi.endswith('.mid'):
-            output_midi += '.mid'
-
-        output_midi = GLOBALS['MIDI'] + '/' + output_midi
-
-        f = midi.translate.streamToMidiFile(score)
-        f.open(output_midi, attrib='wb')
-        f.write()
-        f.close()
-
-    if 'show_score' not in kwargs or (isinstance(kwargs['show_score'], bool) and kwargs['show_score'] is True):
-
-        # by default score is shown
-        print 'Displaying score...'
-        score.show(app=GLOBALS['MUSE_SCORE'])
-
-    if 'audio' in kwargs:
-        # print 'Midi to audio conversion not implemented'
-
-        audio = kwargs['audio']
-        assert isinstance(audio, bool)
-
-        if audio:
-            audio_name = output_midi.split('.')[0] + '.ogg'
-
-            subprocess.call(["timidity",output_midi,"-Ow","-o",audio_name])
-            # raise NotImplemented
+    # parte estatistica e output de ficheiros para @FileWriter
+    # retornar score, utilizar dynamics_algorithm, adicionar volumes a score e analisar score
+    return score
 
 
 def gen_random_seqs(n, MAX, filename):
@@ -983,30 +939,36 @@ if __name__ == "__main__":
     # gen_random_seqs(8, 40, rnd_file)
     # aln = gen_alignment(rnd_file, n_sequences=8)
 
-    # TODO: test and debug
-    msa = AlignIO.read(SEQ_DIR + '/mafft_164358.fasta', 'clustal')
+    msa = AlignIO.read('output.fasta', 'clustal')
     msa = np.array([np.array(seq) for seq in msa])
 
-    d_vector, windows = dynamics_algorithm(msa, window=1500)
+    algorithm = DynamicsAlgorithm('entropy', window_size=3000)
+    algorithm['criteria'] = 'average'
 
+    d_vector = gen_dynamics_vector(msa, algorithm)
+
+    from math import ceil
+
+    windows = ceil(float(np.alen(msa[0]))/3000)+1
     left = np.arange(windows)
-    height = d_vector['vol']
+    height = d_vector['entropy']
 
+    print height[-1]
     plt.bar(left, height)
-    plt.show()
+    plt.savefig('fig.png')
     plt.close()
 
     """
     TEST_FILE_2 = SEQ_DIR + '/mafft_164358.fasta'
 
     for i in range(10,21):
-        gen_song(TEST_FILE_1, duration_mapping=1, block=20, block_duration=i, show_score=False,
+        gen_song(TEST_FILE_1, duration_mapping=1, block=20, window_duration=i, show_score=False,
                  output_midi='Oryzas_1_' + str(i) + '.mid',audio=True)
-        gen_song(TEST_FILE_1, duration_mapping=2, block=20, block_duration=i, show_score=False,
+        gen_song(TEST_FILE_1, duration_mapping=2, block=20, window_duration=i, show_score=False,
                  output_midi='Oryzas_2_' + str(i) + '.mid',audio=True)
 
     for i in range(20,26):
-        gen_song(TEST_FILE_2, duration_mapping=1, block=20, block_duration=i, show_score=False,
+        gen_song(TEST_FILE_2, duration_mapping=1, block=20, window_duration=i, show_score=False,
              output_midi='OryzasAmmotheas_1_' + str(i) + '.mid',audio=True)
-        gen_song(TEST_FILE_2, duration_mapping=2, block=20, block_duration=i, show_score=False,
+        gen_song(TEST_FILE_2, duration_mapping=2, block=20, window_duration=i, show_score=False,
              output_midi='OryzasAmmotheas_2_' + str(i) + '.mid',audio=True)"""
