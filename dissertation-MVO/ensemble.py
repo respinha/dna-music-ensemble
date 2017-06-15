@@ -107,10 +107,11 @@ class Composer(object):
         instruments = self.assign_instruments(msa)
 
         # todo: for now, only one score; divide in multiple pieces
+        # in that case, song should be an array of scores
+        songs = gen_song(self.pitch_algorithm, self.durations_algorithm, self.dynamics_algorithm, msa, instruments)
 
-        song = gen_song(self.pitch_algorithm, self.durations_algorithm, self.dynamics_algorithm, msa, instruments)
-
-        return song
+        assert isinstance(songs, list)
+        return songs
 
         #  dynamics_vector = gen_dynamics_vector(msa, self.dynamics_algorithm)
         # add_dynamics_to_score(dynamics_vector['vol'], score)
@@ -261,11 +262,13 @@ def run():
     instruments_algo = ClusteringAlgorithm('kmeans')
 
     composer = Composer(instruments_algo, pitch_algo, durations_algo, dynamics_algo, input_type='alignment', alignment=aln_file)
-    score = composer.gen_numerical_vectors()
+    scores = composer.gen_numerical_vectors()
 
-    # temporary
 
-    msa = AlignIO.read(aln_file, 'clustal')
+    for score in scores:
+        print len(score.parts[0])
+
+    """msa = AlignIO.read(aln_file, 'clustal')
     sequences = np.chararray(np.alen(msa), itemsize=25)
 
     i = 0
@@ -273,9 +276,7 @@ def run():
         sequences[i] = record.description
 
     fw = FileWriter(score, sequences)
-    fw.write(midi='test', score='test', display=False)
-
-# if __name__ == "main":
+    fw.write(midi='test', score='test', display=False)"""
 
 import multiprocessing
 import time

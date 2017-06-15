@@ -781,7 +781,6 @@ def gen_stream(score, sequence, pitch_algorithm, durations_algorithm, assigned_i
     for x in dv.keys():
         dv[x] = iter(dv[x])
 
-    # print durations
     durations = iter(durations)
 
     # TODO: integrar esta parte no algoritmo anterior para poupar iteracoes
@@ -794,8 +793,8 @@ def gen_stream(score, sequence, pitch_algorithm, durations_algorithm, assigned_i
     assert isinstance(assigned_instrument, Instrument)
     print assigned_instrument
 
-    part.insert(0, score_tempo)
-    part.insert(0, assigned_instrument)
+    # part.insert(0, score_tempo)
+    # part.insert(0, assigned_instrument)
 
     print 'Assigning notes and durations from numeric vectors...'
 
@@ -835,7 +834,7 @@ def gen_stream(score, sequence, pitch_algorithm, durations_algorithm, assigned_i
     print 'Done'
 
 
-def gen_song(pitch_algorithm, durations_algorithm, dynamics_algorithm, alignment, instruments):
+def gen_song(pitch_algorithm, durations_algorithm, dynamics_algorithm, alignment, instruments, piece_length=5000):
 
     ####### ALIGNMENT HANDLING ##############
     assert (alignment is not None), 'No MSA provided'
@@ -853,63 +852,75 @@ def gen_song(pitch_algorithm, durations_algorithm, dynamics_algorithm, alignment
         print 'Opening phylip file...'
         alignment = AlignIO.read(open(aln_file.split('.')[0] + ".phy"), 'phylip-relaxed')
 
-    score = stream.Score()
+    assert isinstance(piece_length, int) or isinstance(piece_length, float) and piece_length > 60
 
-    # TODO: Make dynamic
-    score_tempo = tempo.MetronomeMark('adagio', 120)
-    score.insert(0, score_tempo)
+    # step = 1 if not pitch_algorithm['n_nucleotides'] else pitch_algorithm['n_nucleotides']
 
-    print 'Generating pitches and durations...'
+    # piece_length for now is only referring to number of musical elements
+    # n_pieces = len(alignment[0]) / (step * piece_length)
+    scores = []
 
-    i = 0
+    alignment = np.array([[y for y in x] for x in alignment])
 
-    for record in alignment:
+    for p in range(0, np.alen(alignment[0]), piece_length):
 
-        gen_stream(score, record.seq, pitch_algorithm, durations_algorithm, instruments[i], score_tempo)
-        i += 1
+        score = stream.Score()
 
-    print 'Checking if parts have the same total duration...'
+        # TODO: Make tempo dynamic
+        score_tempo = tempo.MetronomeMark('adagio', 120)
+        score.insert(0, score_tempo)
 
-    # aligning part durations (score or midi cannot be produced with unequal duration parts)
-    for part in score.parts:
+        print 'Generating pitches and durations...'
 
-        # obtaining highest duration from all parts
-        # and aligning with it
-        diff = score.highestTime - part.highestTime
+        subalignment = alignment[:, p:p+piece_length]
 
-        if diff > 0:
+        for i in range(0, np.alen(alignment)):
+            # gen_stream(score, record.seq, pitch_algorithm, durations_algorithm, instruments[i], score_tempo)
+            gen_stream(score, subalignment[i], pitch_algorithm, durations_algorithm, instruments[i], score_tempo)
 
-            while round(diff, 5) > 0:
+        print 'Checking if parts have the same total duration...'
 
-                # minimum = duration.Duration('2048th')
-                n = note.Rest()
+        # aligning part durations (score or midi cannot be produced with unequal duration parts)
+        for part in score.parts:
 
-                if diff >= float(0.5):
-                    n.duration = duration.Duration(0.5)
-                else:
-                    if diff >= MIN_TEMPO:
-                        n.duration = duration.Duration(diff)
+            # obtaining highest duration from all parts
+            # and aligning with it
+            diff = score.highestTime - part.highestTime
+
+            if diff > 0:
+
+                while round(diff, 5) > 0:
+
+                    # minimum = duration.Duration('2048th')
+                    n = note.Rest()
+
+                    if diff >= float(0.5):
+                        n.duration = duration.Duration(0.5)
                     else:
-                        n.duration = duration.Duration(MIN_TEMPO)
+                        if diff >= MIN_TEMPO:
+                            n.duration = duration.Duration(diff)
+                        else:
+                            n.duration = duration.Duration(MIN_TEMPO)
 
-                assert n.duration.quarterLength >= MIN_TEMPO
+                    assert n.duration.quarterLength >= MIN_TEMPO
 
-                part.append(n)
-                diff = score.highestTime - part.highestTime
+                    part.append(n)
+                    diff = score.highestTime - part.highestTime
 
-    # dynamics_vector = gen_dynamics_vector(msa, dynamics_algorithm)
-    dynamics_vector = gen_dynamics_vector(alignment, dynamics_algorithm)
+        print 'Shape', subalignment.shape
+        # dynamics_vector = gen_dynamics_vector(msa, dynamics_algorithm)
+        dynamics_vector = gen_dynamics_vector(subalignment, dynamics_algorithm)
 
-    volumes = dynamics_vector['vol']
+        volumes = dynamics_vector['vol']
 
-    window_size = dynamics_algorithm['window_size']
-    add_dynamics_to_score(volumes, score, window_size)
+        window_size = dynamics_algorithm['window_size']
+        add_dynamics_to_score(volumes, score, window_size)
 
-    # TODO: so esta a ser gerada uma score; futuro: gerar varias cada uma com o seu tempo
+        scores.append(score)
 
     # parte estatistica e output de ficheiros para @FileWriter
     # retornar score, utilizar dynamics_algorithm, adicionar volumes a score e analisar score
-    return score
+    return scores
 
 
 def gen_random_seqs(n, MAX, filename):
