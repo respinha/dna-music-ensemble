@@ -16,23 +16,40 @@ np.set_printoptions(precision=5, suppress=True)  # suppress scientific float not
 
 from music21.instrument import StringInstrument, WoodwindInstrument, BrassInstrument, Percussion
 
+from scipy.stats import entropy, itemfreq
+
+
 families = {0: StringInstrument, 1: WoodwindInstrument,
             2: BrassInstrument, 3: Percussion}
 
-aln = AlignIO.read(open('source_sequences/clustal_11.aln', 'rU'), 'clustal')
+aln = AlignIO.read(open('source_sequences/clustal_5.aln', 'rU'), 'clustal')
 
 calculator = DistanceCalculator(model='trans')
-distance_matrix = calculator.get_distance(aln)
-X = np.array([row for row in distance_matrix])
+dm = calculator.get_distance(aln)
+
+X = np.array([row for row in dm])
+print X
+"""
 
 model = KMeans(n_clusters=3, random_state=0)
 model.fit(X)
 
-print model.labels_
-
 centroids = model.cluster_centers_
+labels = model.labels_
 
-for j in range(0, len(set(model.labels_))):
+for i in range(0, len(aln[0]), 1500):
+
+    window = 1500 if i+1500 < len(aln[0]) else len(aln[0]) - i
+
+    chunk = np.array([[seq[j] for j in range(i, i+window)]
+                        for seq in aln])
+
+    print chunk
+    print len(chunk[0])
+
+    distance_matrix = calculator.get_distance()"""
+
+"""for j in range(0, len(set(model.labels_))):
 
     instr = families[j]
 
@@ -67,4 +84,4 @@ for j in range(0, len(set(model.labels_))):
 #    leaf_rotation=90.,  # rotates the x axis labels
 #    leaf_font_size=8.,  # font size for the x axis labels
 #)
-#plt.show()
+#plt.show()"""""

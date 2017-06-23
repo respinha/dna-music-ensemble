@@ -350,7 +350,7 @@ def gen_dynamics_vector(msa, dynamics_algorithm):
     # which windows have a percentage of gaps
     # below the established threshold
 
-    for i in range(0,aln_len, window):
+    for i in range(0, aln_len, window):
 
         if i + window > aln_len: window = aln_len - i
 
@@ -444,12 +444,12 @@ def gen_dynamics_vector(msa, dynamics_algorithm):
     return dynamics_vector
 
 
-def add_dynamics_to_score(dynamics_vector, score, window_size, max_rest_tempo=3):
+def add_dynamics_to_score(dynamics_vector, score, window_size, instruments, max_rest_tempo=3):
 
+    # consistency check
     assert isinstance(score, stream.Score) and isinstance(dynamics_vector, np.ndarray)
-
-    # assert length == np.alen(score), 'Vectors lengths do not match when adding dynamics to score: score part length is ' + str(length) \
-    #                                    + ' and score length is ' + str(np.alen(score))
+    assert len(instruments) == len(score.parts)
+    assert all(isinstance(i, instrument.Instrument) for i in instruments)
 
     vol_idx = 0
     score_tempo = score.getElementsByClass(tempo.MetronomeMark)[0]
@@ -466,21 +466,18 @@ def add_dynamics_to_score(dynamics_vector, score, window_size, max_rest_tempo=3)
 
         part = stream.Part()
         part.insert(0, score_tempo)
+        part.insert(0, instruments[p])
 
         final_score.append(part)
 
     # iterating through a music score in chunks of 'window_size' length
-    print 'Len', length
-    """for i in range(0, len(score.parts)):
-
-        part = score.parts[i]
-
-        vol_idx = 0"""
 
     for i in range(0, length, window_size):
         window_size = length - i if i + window_size > length else window_size
 
-        if dynamics_vector[vol_idx] == 0:
+        print 'len', length, 'window_size', window_size
+
+        if dynamics_vector[vol_idx] <= 0:
             r = note.Rest()
 
             for part in final_score.parts:
@@ -502,25 +499,15 @@ def add_dynamics_to_score(dynamics_vector, score, window_size, max_rest_tempo=3)
 
                         final_part.append(n)
                         if isinstance(n, note.Note):  # if Note
+
                             final_part[-1].volume = dynamics_vector[vol_idx]
 
         vol_idx += 1
 
-    """for i in range(0, length, window_size):
+    print 'SECS', final_score[0].seconds
 
-        for p in range(0, len(final_score.parts)):
-
-            final_part = final_score.parts[p]
-            part = score.parts[p]
-            for n in part:
-
-                if isinstance(n, note.GeneralNote):
-
-                    final_part.append(n)
-                    if isinstance(n, note.Note):
-                        final_part[-1].volume = dynamics_vector[vol_idx]"""
-
-    assert np.alen(final_score.parts) == np.alen(score.parts) # and final_score.seconds <= score.seconds
+    assert len(final_score.parts) == len(score.parts)
+    return final_score
 
 
 # returns a tuple containing:
@@ -748,7 +735,7 @@ def gen_pitch_duration_vectors(sequence, pitch_algorithm, durations_algorithm):
     return distance_vectors, durations
 
 
-def gen_stream(score, sequence, pitch_algorithm, durations_algorithm, assigned_instrument, score_tempo):
+def gen_stream(score, sequence, pitch_algorithm, durations_algorithm, score_tempo):
 
     # keyworded arguments:
     #   window_duration
@@ -756,23 +743,6 @@ def gen_stream(score, sequence, pitch_algorithm, durations_algorithm, assigned_i
     #   signal_gap
 
     assert isinstance(pitch_algorithm, PitchAlgorithm) and isinstance(durations_algorithm, DurationsAlgorithm)
-
-    """if 'window_duration' in kwargs:
-        window_duration = kwargs['window_duration']
-        assert isinstance(window_duration, int) or isinstance(window_duration, float)
-    else:
-        window_duration = -1
-
-    if 'step' in kwargs:
-        step = kwargs['step']
-        assert isinstance(step, int)
-    else:
-        step = 1
-
-    if 'signal_gap' in kwargs:
-        signal_gap = kwargs['signal_gap']
-        if signal_gap is True:
-            raise NotImplementedError"""
 
     dv, durations = gen_pitch_duration_vectors(sequence, pitch_algorithm, durations_algorithm)
 
@@ -790,10 +760,6 @@ def gen_stream(score, sequence, pitch_algorithm, durations_algorithm, assigned_i
     part = stream.Part()
 
     assert isinstance(score_tempo, tempo.MetronomeMark) and score_tempo == score.getElementsByClass(tempo.MetronomeMark)[0]
-    assert isinstance(assigned_instrument, Instrument)
-    print assigned_instrument
-
-    # part.insert(0, score_tempo)
     # part.insert(0, assigned_instrument)
 
     print 'Assigning notes and durations from numeric vectors...'
@@ -867,7 +833,8 @@ def gen_song(pitch_algorithm, durations_algorithm, dynamics_algorithm, alignment
         score = stream.Score()
 
         # TODO: Make tempo dynamic
-        score_tempo = tempo.MetronomeMark('adagio', 120)
+        # score_tempo = tempo.MetronomeMark('Larghissimo', 19)
+        score_tempo = tempo.MetronomeMark('adagio', 125)
         score.insert(0, score_tempo)
 
         print 'Generating pitches and durations...'
@@ -875,8 +842,8 @@ def gen_song(pitch_algorithm, durations_algorithm, dynamics_algorithm, alignment
         subalignment = alignment[:, p:p+piece_length]
 
         for i in range(0, np.alen(alignment)):
-            # gen_stream(score, record.seq, pitch_algorithm, durations_algorithm, instruments[i], score_tempo)
-            gen_stream(score, subalignment[i], pitch_algorithm, durations_algorithm, instruments[i], score_tempo)
+            # gen_stream(score, subalignment[i], pitch_algorithm, durations_algorithm, instruments[i], score_tempo)
+            gen_stream(score, subalignment[i], pitch_algorithm, durations_algorithm, score_tempo)
 
         print 'Checking if parts have the same total duration...'
 
@@ -907,15 +874,13 @@ def gen_song(pitch_algorithm, durations_algorithm, dynamics_algorithm, alignment
                     part.append(n)
                     diff = score.highestTime - part.highestTime
 
-        print 'Shape', subalignment.shape
         # dynamics_vector = gen_dynamics_vector(msa, dynamics_algorithm)
         dynamics_vector = gen_dynamics_vector(subalignment, dynamics_algorithm)
 
         volumes = dynamics_vector['vol']
-
         window_size = dynamics_algorithm['window_size']
-        add_dynamics_to_score(volumes, score, window_size)
 
+        score = add_dynamics_to_score(volumes, score, window_size, instruments)
         scores.append(score)
 
     # parte estatistica e output de ficheiros para @FileWriter

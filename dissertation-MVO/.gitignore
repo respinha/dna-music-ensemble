@@ -57,5 +57,9 @@ tests.py
 *.png
 *.xml
 *.mid
+*.ogg
+*.fasta
+*.fna
+*.txt
 
 /output_files/

@@ -79,7 +79,13 @@ class Composer(object):
 
         assert isinstance(msa, MultipleSeqAlignment)
 
-        return [instrument.Glockenspiel(), instrument.SleighBells(), instrument.Gong(), instrument.Marimba()]
+        # return [instrument.Glockenspiel(), instrument.SleighBells(), instrument.Gong(), instrument.Marimba()]
+        return [instrument.Vibraphone(), instrument.Glockenspiel(), instrument.Marifrmba(), instrument.Marimba()]
+        """instr = []
+        for i in range(0, 4):
+            instr.append(instrument.Vibraphone())
+
+        return instr"""
 
     def gen_numerical_vectors(self):
 
@@ -101,7 +107,7 @@ class Composer(object):
 
         assert window_sizes_are_valid, 'Window sizes cannot differ in algorithm mappings'
 
-        from api import gen_song, gen_dynamics_vector, add_dynamics_to_score
+        from api import gen_song
 
         # TODO: insert clustering/instrument assigning algorithm
         instruments = self.assign_instruments(msa)
@@ -133,7 +139,7 @@ class FileWriter(object):
         assert isinstance(score, stream.Score) and isinstance(records, np.ndarray)
         assert np.alen(score.parts) == np.alen(records)
 
-    def write(self, name='alignment', display=False, **kwargs):
+    def write(self, name='alignment', display=False, stats=None, **kwargs):
 
         if np.alen(kwargs.keys()) == 0:
             print 'No output type or path specified'
@@ -147,7 +153,7 @@ class FileWriter(object):
         for key, value in kwargs.items():
 
             print type(value)
-            assert isinstance(value, str)
+            # assert isinstance(value, str)
 
             if key == 'midi':
 
@@ -162,6 +168,9 @@ class FileWriter(object):
                 output_midi = GLOBALS['MIDI'] + '/' + value
 
                 f = midi.translate.streamToMidiFile(self.score)
+
+                print 'Output MIDI', output_midi
+
                 f.open(output_midi, attrib='wb')
                 f.write()
                 f.close()
@@ -172,7 +181,27 @@ class FileWriter(object):
                     audio_name = value.split('.')[0] + '.ogg'
                     subprocess.call(["timidity", output_midi, "-Ow", "-o", audio_name])
 
-            elif key == 'stats':
+            elif key == 'score':
+
+                print 'Writing score...'
+
+                # lily already inserts extension in filename
+                value = value[:-4] if value.endswith('.pdf') else value
+
+                self.score.write('lily.pdf', fp=GLOBALS['SCORES'] + '/' + value)
+
+                # deleting tmp file created by lily without .pdf extension
+                to_unlink = GLOBALS['SCORES'] + '/' + value
+                if os.path.isfile(to_unlink):
+                    os.unlink(to_unlink)
+
+            if display:
+                print 'Displaying score...'
+                self.score.show(app=GLOBALS['MUSE_SCORE'])
+
+            if stats:
+
+                assert isinstance(stats, str), 'Invalid path for stats file'
 
                 print 'Generating pitch and duration histograms...'
 
@@ -184,54 +213,39 @@ class FileWriter(object):
                 if not os.path.isdir(hist_notes_dir):
                     os.makedirs(hist_notes_dir)
 
-                    i = 0
-                    for part in self.score.parts:
+                i = 0
+                for part in self.score.parts:
 
-                        durations_notes = np.array([(float(x.duration.quarterLength), x.name) for x in part
-                                                    if not isinstance(x, instrument.Instrument)],
-                                                   dtype=[('durations', np.float,), ('notes', 'S5')])
+                    durations_notes = np.array([(float(x.duration.quarterLength), x.name) for x in part
+                                                if isinstance(x, note.Note)],
+                                               dtype=[('durations', np.float,), ('notes', 'S5')])
 
-                        durations = durations_notes['durations']  # first column
-                        notes = durations_notes['notes']
+                    durations = durations_notes['durations']  # first column
 
-                        if 'durations_dir' in locals():
-                            plt.hist(durations, color='b')
-                            plt.savefig(hist_durations_dir + '/' + self.records[i] + '.png')
-                            plt.close()
+                    print 'Durations', durations
+                    print 'Durations set', np.unique(durations)
+                    notes = durations_notes['notes']
 
-                        if 'notes_dir' in locals():
-                            from collections import Counter
+                    plt.hist(durations, color='b')
+                    plt.savefig(hist_durations_dir + '/' + stats + '_' + self.records[i] + '.png')
+                    plt.close()
 
-                            counts = Counter(notes)
+                    from collections import Counter
 
-                            note_names = counts.keys()
-                            note_values = counts.values()
+                    counts = Counter(notes)
 
-                            width = 1.0
-                            idx = np.arange(len(note_names))
-                            plt.bar(idx, note_values, width)
-                            plt.xticks(idx + width * 0.5, note_names)
-                            plt.savefig(hist_notes_dir + '/' + self.records[i] + '.png')
-                            plt.close()
+                    note_names = counts.keys()
+                    note_values = counts.values()
 
-                        i += 1
-                elif key == 'score':
+                    width = 1.0
+                    idx = np.arange(len(note_names))
+                    plt.bar(idx, note_values, width)
+                    plt.xticks(idx + width * 0.5, note_names)
 
-                    print 'Writing score...'
+                    plt.savefig(hist_notes_dir + '/' + stats + '_' + self.records[i] + '.png')
+                    plt.close()
 
-                    # lily already inserts extension in filename
-                    value = value[:-4] if value.endswith('.pdf') else value
-
-                    self.score.write('lily.pdf', fp=GLOBALS['SCORES'] + '/' + value)
-
-                    # deleting tmp file created by lily without .pdf extension
-                    to_unlink = GLOBALS['SCORES'] + '/' + value
-                    if os.path.isfile(to_unlink):
-                        os.unlink(to_unlink)
-
-            if display:
-                print 'Displaying score...'
-                self.score.show(app=GLOBALS['MUSE_SCORE'])
+                    i += 1
 
 # TODO:
 # check if test file with results already exists
@@ -256,7 +270,7 @@ def run():
     from music21 import scale
 
     pitch_algo = PitchAlgorithm(PitchAlgorithm.WORD_DISTANCES, scale_vector=scale.MajorScale(), n_nucleotides=1)
-    durations_algo = DurationsAlgorithm(DurationsAlgorithm.FREQUENCIES_DYNAMIC, window_size=1000, window_duration=50, n_nucleotides=1)
+    durations_algo = DurationsAlgorithm(DurationsAlgorithm.FREQUENCIES_DYNAMIC, window_size=1000, window_duration=500, n_nucleotides=1)
     dynamics_algo = DynamicsAlgorithm(DynamicsAlgorithm.SHANNON_INDEX, window_size=2500, gap_window_threshold=0.5, gap_column_threshold=0.7, criteria='local', levels=7)
 
     instruments_algo = ClusteringAlgorithm('kmeans')
@@ -264,19 +278,22 @@ def run():
     composer = Composer(instruments_algo, pitch_algo, durations_algo, dynamics_algo, input_type='alignment', alignment=aln_file)
     scores = composer.gen_numerical_vectors()
 
-
-    for score in scores:
-        print len(score.parts[0])
-
-    """msa = AlignIO.read(aln_file, 'clustal')
+    msa = AlignIO.read(aln_file, 'clustal')
     sequences = np.chararray(np.alen(msa), itemsize=25)
 
     i = 0
     for record in msa:
         sequences[i] = record.description
+        i += 1
 
-    fw = FileWriter(score, sequences)
-    fw.write(midi='test', score='test', display=False)"""
+    i = 0
+
+    for score in scores:
+
+        fw = FileWriter(score, sequences)
+        fname = 'test_fast_' + str(i)
+        fw.write(midi=fname, audio=fname, display=False)
+        i += 1
 
 import multiprocessing
 import time
@@ -285,7 +302,7 @@ p = multiprocessing.Process(target=run, name="Run", args=())
 p.start()
 
 print 'Started!'
-time.sleep(5 * 60)
+time.sleep(10 * 60)
 
 if p.is_alive():
     print 'Early kill'
