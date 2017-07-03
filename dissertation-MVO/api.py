@@ -18,7 +18,9 @@ from Bio.Align.Applications import MuscleCommandline
 from scipy.stats import itemfreq
 
 import numpy as np
-import pandas
+
+import datasketch as dk
+import pandas as pd
 
 import os
 import sys
@@ -908,14 +910,244 @@ def gen_random_seqs(n, MAX, filename):
 
     SeqIO.write(short_version[:n], filename, 'fasta')
 
-if __name__ == "__main__":
-    # TEST_FILE_1 = SEQ_DIR + '/clustal_11.aln'  # '/mafft_164358.fasta'
+###### SIMILARITIES ############
 
-    # rnd_file = SEQ_DIR + 'rnd.fasta'
-    # gen_random_seqs(8, 40, rnd_file)
-    # aln = gen_alignment(rnd_file, n_sequences=8)
+
+# splits a given sequence from an MSA with alphabet {'A','G','C','T','-'} into shingles
+# this technique is based on the k-shingles approach used in document matching algorithms
+def split_into_shingles(sequence, k=2):
+    """ TODO: prever alfabeto de notas ou duracoes
+    for symbol in sequence:
+        if symbol not in ['a','g','c','t','-']:
+            print 'Invalid sequence alphabet: ', set(sequence)
+            return None	"""
+
+    length = len(sequence)
+    if k < 1 or k > length:
+        print 'Invalid parameter k ', k, ' for sequence length ', length
+        return None
+
+    # tokenizer
+    n_shingles = length - k + 1  # experimental value !!
+    shingles = np.zeros((n_shingles, k), dtype="S2")
+
+    i = 0
+    while length - i >= k:
+        # if length - i < k:
+        #	break
+
+        for j in range(0, k):
+            shingles[i][j] = sequence[i + j]
+
+        i += 1
+
+    # print shingles
+    return shingles
+
+
+def calc_jaccard_similarities(sets, k=2, inter_alignments=False):
+
+    assert len(set(len(subset) for subset in sets)) == 1
+    assert isinstance(sets, np.ndarray)
+
+    # print sets.shape, len(sets[0])
+    # print len(sets[0]) - k + 1
+    # print len(sets)
+
+    assert isinstance(inter_alignments, bool)
+
+    minhashes = []
+
+    if inter_alignments:
+
+        assert len(sets.shape) == 3
+
+        shingles = np.empty((sets.shape[0], sets.shape[1] * (sets.shape[2] - k + 1), k), dtype="S2")
+
+        shingle_idx = 0
+        set_row_len = sets.shape[2] - k + 1
+
+        for i in range(0, sets.shape[0]):
+
+            m = dk.MinHash()
+            for j in range(0, sets.shape[1]):
+
+                # print 'N shingles', len(sets[i][j]) - k + 1
+
+                shingles[i, shingle_idx : shingle_idx + set_row_len] = split_into_shingles(sets[i][j], k=k)
+                shingle_idx += set_row_len
+
+            shingle_idx = 0
+
+            shingle_str = [''.join(s) for s in shingles[i].astype(str)]
+            for s in shingle_str:
+                m.update(s.encode('utf-8'))
+
+            minhashes.append(m)
+
+    # if not inter_alignments:
+    else:
+        shingles = np.zeros((len(sets), len(sets[0]) - k + 1, k), dtype="S2")
+
+        for i in range(0, len(sets)):
+
+            shingles[i] = split_into_shingles(sets[i], k=k)
+            m = dk.MinHash()
+
+            # for s in shingles[i]:
+            shingle_str = [''.join(s) for s in shingles[i].astype(str)]
+            for s in shingle_str:
+                m.update(s.encode('utf-8'))
+            minhashes.append(m)
+
+    assert len(sets) == len(minhashes)
+
+    if not inter_alignments:
+        n_rows = len(sets) * (len(sets) -1)
+    else:
+
+        n_rows = sets.shape[0] - 1
+
+    # df = pd.DataFrame(data=np.zeros(permutations, 3), index='index', columns=['seq i', 'seq j', 'jaccard'], dtype=np.float)
+    # jaccard_dict = {'jaccard' : np.zeros(permutations, dtype=np.float), 'seq i': np.zeros(permutations, dtype=np.int), 'seq j' : np.zeros(permutations, dtype=np.int)}
+
+    jaccard_df = pd.DataFrame(np.empty((n_rows, ), dtype=[('i', np.uint8), ('j', np.uint8), ('jaccard', np.float)]))
+
+    row = 0
+    for i in range(0, len(sets)):
+        for j in range(0, len(sets)):
+
+            if i != j and not ((jaccard_df['i'] == 2) & (jaccard_df['j'] == 5)).any():  # excluding intersections
+
+                str1 = [''.join(s) for s in shingles[i].astype(str)]
+                str2 = [''.join(s) for s in shingles[j].astype(str)]
+
+                jaccard = minhashes[i].jaccard(minhashes[j])
+
+                # print i, j, float(len(set(str2) & set(str1))) / len(set(str2) | set(str1))
+
+                jaccard_df['i'][row] = i
+                jaccard_df['j'][row] = j
+                jaccard_df['jaccard'][row] = jaccard
+
+                row += 1
+
+    # df = pd.DataFrame(data=jaccard_dict)
+    return jaccard_df
+
+
+# score tokenizer
+def tokenize_score(score):
+    assert isinstance(score, stream.Stream)  # && len(score.parts) <= 1
+
+    assert score.getElementsByClass(tempo.MetronomeMark)
+
+    duration_notes_tokens = np.empty((len(score.getElementsByClass(note.GeneralNote)), 2), dtype="S14")  # dtype=np.dtype()
+    # note_tokens = np.empty(len(score.getElementsByClass(note.GeneralNote)), dtype="S2")
+
+    i = 0
+    for element in score:
+
+        if isinstance(element, note.GeneralNote):
+            d = element.seconds
+            n = element.name
+
+            duration_notes_tokens[i][0] = str(d)
+            duration_notes_tokens[i][1] = str(n)
+
+            # print duration_tokens[i], note_tokens[i]
+
+            i += 1
+
+    return duration_notes_tokens
+
+
+def get_sequence_similarities(alignment, score, k=2, n=1):
+
+    assert (isinstance(alignment, np.ndarray) or isinstance(alignment, MultipleSeqAlignment)) and isinstance(score, stream.Score)
+    assert len(score.parts) > 0
+
+    n_notes = len(score.parts[0].getElementsByClass(note.GeneralNote))
+
+    assert len(alignment) == len(score) and len(alignment[0]) == float(n_notes)/n
+
+    tokenized_score = np.empty((len(score), 2, n_notes), dtype="S14")
+
+    for i in range(0, len(score.parts)):
+        tokenized_score[i] = tokenized_score(score.parts[i])
+
+    calc_jaccard_similarities(alignment, k=k)
+    calc_jaccard_similarities(tokenized_score[:, 0], k=k)
+    calc_jaccard_similarities(tokenized_score[:, 1], k=k)
+
+
+if __name__ == "__main__":
 
     msa = AlignIO.read('output.fasta', 'clustal')
+
+    msa = np.array([[y for y in x] for x in msa])
+
+    piece_length = 5000
+
+    pieces = []
+
+    pitch_algorithm = PitchAlgorithm(PitchAlgorithm.WORD_DISTANCES, scale_vector=scale.MajorScale(), n_nucleotides=1)
+    durations_algorithm = DurationsAlgorithm(DurationsAlgorithm.FREQUENCIES_DYNAMIC, window_size=1000, window_duration=500,
+                                        n_nucleotides=1)
+
+    print np.ceil(float(msa.shape[1])/5000)
+
+    similarities_df = pd.DataFrame(np.empty(np.floor(float(msa.shape[1]) / 5000).astype(int), dtype=[('idx', np.uint8), ('jaccard', np.float), ('tempo', np.float)]))
+    j_idx = 0
+
+    k = np.random.choice(np.arange(4, 9), 1)[0]
+    n_classes = 3
+
+    print 'K =', k
+
+    for p in range(5000, len(msa[0]), 5000):
+
+        piece_length = 5000 if msa.shape[1] - p >= 5000 else msa.shape[1] - p
+
+        subalignment = np.empty((2, msa.shape[0], piece_length), dtype=np.dtype(str))
+
+        subalignment[0] = msa[:, p-piece_length:p]
+        subalignment[1] = msa[:, p:p + piece_length]
+
+        print j_idx
+        similarities_df['idx'][j_idx] = j_idx
+        similarities_df['jaccard'][j_idx] = calc_jaccard_similarities(subalignment, k=k, inter_alignments=True)['jaccard'][0]
+        j_idx += 1
+
+        score = stream.Score()
+
+        score_tempo = tempo.MetronomeMark('adagio', 125)
+        score.insert(0, score_tempo)
+
+        pieces.append(score)
+
+
+    print similarities_df
+    j_idx = 0
+
+    classes = np.arange(40, 145, (145 - 40) / n_classes, dtype=np.uint8)
+    print classes
+
+    similarities_df = similarities_df.sort_values('jaccard')
+    jaccard_indices = np.array_split(similarities_df['jaccard'], n_classes)
+
+    class_size = len(jaccard_indices[0])
+    print
+
+    j = 0
+    for i in range(0, len(classes)):
+        similarities_df['tempo'][j:j + class_size] = classes[i]
+        print 'L', len(similarities_df['tempo'][j:j + class_size])
+        j += class_size
+
+    print similarities_df.sort_values('idx')
+    # jaccard_indices['tempo'] = pd.Series(data=np.zeros(len(jaccard_indices['i'])))
+    """
     msa = np.array([np.array(seq) for seq in msa])
 
     algorithm = DynamicsAlgorithm('entropy', window_size=3000)
@@ -932,7 +1164,7 @@ if __name__ == "__main__":
     print height[-1]
     plt.bar(left, height)
     plt.savefig('fig.png')
-    plt.close()
+    plt.close()"""
 
     """
     TEST_FILE_2 = SEQ_DIR + '/mafft_164358.fasta'
@@ -948,3 +1180,4 @@ if __name__ == "__main__":
              output_midi='OryzasAmmotheas_1_' + str(i) + '.mid',audio=True)
         gen_song(TEST_FILE_2, duration_mapping=2, block=20, window_duration=i, show_score=False,
              output_midi='OryzasAmmotheas_2_' + str(i) + '.mid',audio=True)"""
+
