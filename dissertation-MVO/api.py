@@ -339,7 +339,7 @@ def gen_dynamics_vector(msa, dynamics_algorithm):
     else:
         levels = dynamics_algorithm['levels']
 
-    aln_len = np.alen(msa[0])
+    aln_len = len(msa[0])
 
     from math import ceil
 
@@ -366,7 +366,7 @@ def gen_dynamics_vector(msa, dynamics_algorithm):
             if float(n_gaps) / len(column) < gap_threshold:
                 local_is_below_threshold[j-i] = True
 
-        n_ungapped_regions = np.alen(np.where(local_is_below_threshold)[0])
+        n_ungapped_regions = len(np.where(local_is_below_threshold)[0])
 
         if n_ungapped_regions < gap_threshold * window:
             gaps_below_thresh[window_idx] = True
@@ -435,7 +435,7 @@ def gen_dynamics_vector(msa, dynamics_algorithm):
 
     for i in range(0, int(n_windows)):
 
-        for j in range(0, np.alen(split_info)):
+        for j in range(0, len(split_info)):
             if entropies[i] == -1:
                 dynamics_vector['vol'][i] = -1
             elif entropies[i] <= split_info[j][-1]:
@@ -526,7 +526,7 @@ def gen_pitch_duration_vectors(sequence, pitch_algorithm, durations_algorithm):
     assert sequence is not None
 
     # step is the number of columns/characters that are mapped
-    length = np.alen(sequence)
+    length = len(sequence)
 
     # auxiliary structures
     distance_vectors = dict()  # keys are nucleotides; values are np arrays
@@ -550,87 +550,133 @@ def gen_pitch_duration_vectors(sequence, pitch_algorithm, durations_algorithm):
             assert (isinstance(window_duration, float) or isinstance(window_duration, int)) and window > 0
 
     if 'n_nucleotides' in pitch_algorithm.keys():
-        # TODO: implementar para N nucleotidos
         assert step == pitch_algorithm['n_nucleotides']
 
     d_algorithm = durations_algorithm['algorithm']
     p_algorithm = pitch_algorithm['algorithm']
 
-    # durations vector
-    durations = np.zeros((length,), dtype=np.float)
+    assert 'scale' in pitch_algorithm.keys()
 
-    for i in range(0, length, window):
+    if p_algorithm == PitchAlgorithm.WORD_FREQ:
+        scale = p_algorithm['scale']
+        pitch_freq_vectors = dict()
 
-        if i + window <= length:
-            boundary = i + window
-        else:
-            boundary = i + (length - i)
+        assert len(scale) > 0
 
-        # retrieving region to calculate relative frequencies
-        subset = sequence[i:boundary]
+    # print [x for x in sequence]
 
-        # grouping frequencies of A,C,G,T  within a block
+    # splitting by window value
+    split_seq_len = int(length / window) if length % window == 0 else int(length / window) + 1
+    split_sequence = np.zeros((split_seq_len, window), dtype="S1")
+
+    for i in range(0, split_seq_len):
+
+        subseq = sequence[ i * window : i * window + window]
+        split_sequence[i][ : len(subseq)] = subseq
+        split_sequence[len(subseq) : ] = ''    
+
+    sequence = split_sequence
+
+    n_nucleotide_split_len = int(window / step) if window % step == 0 else int(window / step) + 1
+    split_sequence = np.zeros((split_seq_len, n_nucleotide_split_len), dtype="S" + str(step))
+
+    nucleotides_idx = 0
+    for i in range(0, len(sequence)):
+        
+        subseq = sequence[i]
+        split_subseq = split_sequence[i]
+
+        for j in range(0, len(subseq), step):
+
+            for k in range(j, j + step):    
+                split_subseq[nucleotides_idx] += subseq[k]
+
+            nucleotides_idx += 1
+
+        nucleotides_idx = 0
+
+    # sequence shape - [ [window] [window] ....]
+    # window shape - ['n-nucleotide' 'n-nucleotide' ....]
+    sequence = split_sequence   
+
+    # print sequence
+    assert len(sequence.shape) == 2 
+
+    offset = 0
+
+    # 1d ndarray containing durations in quarter lengths
+    durations = np.empty((sequence.shape[0] * sequence.shape[1],), dtype=np.float)
+    
+    for i in range(0, len(sequence)):
+
+        # a window with n-nucleotide elements
+        subset = sequence[i]
+        # grouping frequencies of n-nucleotides  within a block
         counts = dict(itemfreq(subset))
 
         # This algorithm assigns durations dynamically to nucleotides
         # based on their relative frequency
-        if d_algorithm == durations_algorithm.FREQUENCIES_DYNAMIC:
+        if d_algorithm == durations_algorithm.FREQUENCIES_DYNAMIC or p_algorithm == PitchAlgorithm.WORD_FREQ:
 
             counts_sum = 0
-
-            for j in range(i, boundary):
-                counts_sum += int(counts[subset[j-i]])
+            
+            # for j in range(i, boundary):                
+            for j in range(0, len(subset)):                
+                counts_sum += int(counts[subset[j]])
 
         total_time = 0.0
 
-        for j in range(i, boundary, step):
+        # for j in range(i, boundary, step):
+        # for j in range(i, boundary):
+        for j in range(0, len(subset)):
+
+            if subset[j] == '': continue
+
+            # local_count = int(counts[subset[j - i]])
+            local_count = int(counts[subset[j]])
+            freq = float(local_count) / len(subset)
 
             # pitch algorithm
-            if p_algorithm == PitchAlgorithm.WORD_DISTANCES:
+            if p_algorithm == PitchAlgorithm.WORD_DISTANCES or d_algorithm == DurationsAlgorithm.WORD_DISTANCES:
 
                 # TODO: fazer uma primeira passagem pela sequencia inteira
                 # para saber o numero exato de nucleotidos e reservar np.arrays??
-                letter = sequence[j]
+                letter = subset[j]
 
                 if letter not in distance_vectors.keys():
                     distance_vectors[letter] = []
 
                 else:
-                    diff = j - last_occurrence[letter]
+                    # diff = j - last_occurrence[letter]
+                    diff = j + offset - last_occurrence[letter]
                     distance_vectors[letter].append(diff)
 
-                """if d_mapping == 3:
-                    idx = durations[letter][1]
-                    durations[letter][0][idx] = diff
+                # last_occurrence[letter] = j
+                last_occurrence[letter] = j + offset
 
-                    idx += 1
-                    durations[letter][1] = idx
+            
+            if p_algorithm == PitchAlgorithm.WORD_FREQ:
 
-                    total_time += float(diff)"""
+                # e.g. major scale - C-D-E-F-G-A-B-C
+                # obtain scale from p_algorithm
+                # assign fraction to each note of scale
+                # assign fraction of a note to a frequency
 
-                last_occurrence[letter] = j
+                len_scale = len(scale)
+                frac = 1.0 / len(scale)
+
+                for k in range(0, len_scale):
+                    val = frac * k
+                    if freq > val:
+                        continue
+                    else:
+
+                        if letter not in pitch_freq_vectors.keys():
+                            pitch_freq_vectors[letter] = []
+
+                        pitch_freq_vectors[letter].append(val)
 
             # durations algorithm
-
-            local_count = int(counts[subset[j - i]])
-            freq = float(local_count) / len(subset)
-
-            """
-                TODO: considerar isto?
-                if d_mapping == 0:
-
-                duration_labels = {0.25: 'eighth', 0.5: 'quarter', 0.75: 'half', 1.0: 'whole'}
-                local_duration = 'eighth'
-
-                keys = duration_labels.keys()
-
-                for k in keys:
-
-                    if k > freq:
-                        local_duration = duration_labels[k]
-                        break
-            """
-
             # frequency-biased algorithms
             if d_algorithm == DurationsAlgorithm.FREQUENCIES_DYNAMIC:
 
@@ -654,101 +700,93 @@ def gen_pitch_duration_vectors(sequence, pitch_algorithm, durations_algorithm):
                 frequencies = np.linspace(0.0, 0.5, num=len(duration_labels)-1)
 
                 # dictionary mapping a discrete value for word frequencies to each duration label
-                duration_labels = {frequencies[i]:duration_labels[i] for i in range(0, len(duration_labels)-1)}
+                duration_labels = { frequencies[k] : duration_labels[k] for k in range(0, len(duration_labels)-1) }
                 duration_labels['whole'] = 1.0
 
                 local_duration = '32nd'
                 keys = duration_labels.keys()
 
-                # print freq
+                # finding correspondent label
                 for k in keys:
                     if k > freq:
                         local_duration = duration_labels[k]
                         break
 
+                # obtaining duration in quarter lengths
                 local_duration = duration.Duration(local_duration).quarterLength
+                total_time += local_duration
+
+            elif d_algorithm == DurationsAlgorithm.WORD_DISTANCES:
+
+                duration_labels = np.array(['64th', '32nd','16th','eighth','quarter','half','whole'])
+
+                if len(distance_vectors[letter]) > 0:
+                    duration_label = duration_labels[ distance_vectors[letter][-1] % len(duration_labels) ]
+                else:
+                    duration_label = 'eighth'
+
+                local_duration = duration.Duration(duration_label).quarterLength
                 total_time += local_duration
 
             else:
                 print 'Invalid mapping introduced: ', d_algorithm['algorithm']
                 raise NotImplementedError
 
-            durations[j] = local_duration
+            # durations[j] = local_duration
+            durations[j + offset] = local_duration
 
-        # if d_mapping > 0 and d_mapping < 3:
-        #     total = np.sum([durations[j] for j in range(i, boundary)])
-
-        if d_algorithm == DurationsAlgorithm.FREQUENCIES_DISCRETE:
+        if d_algorithm == DurationsAlgorithm.FREQUENCIES_DISCRETE or d_algorithm == DurationsAlgorithm.WORD_DISTANCES:
 
             if round(float(total_time), 5) != round(float(window_duration), 5):
 
                 ratio = float(window_duration) / float(total_time)
                 total_time = 0.0
-                for j in range(i, boundary):
-                    durations[j] *= ratio
+                # for j in range(i, boundary):
+                for j in range(0, len(subset)):
+                    durations[j + offset] *= ratio
 
-                    assert durations[j] >= MIN_TEMPO,\
-                        'Higher tempo required for each subsequence; too short duration was calculated: ' + str(durations[j])
+                    assert durations[j + offset] >= MIN_TEMPO,\
+                        'Higher tempo required for each subsequence; too short duration was calculated: ' + str(durations[j + offset])
 
-                    total_time += durations[j]
-
-        """elif d_mapping == 3:
-
-            if round(float(total_time), 5) != round(float(window_duration), 5):
-
-                ratio = float(window_duration) / float(total_time)
-                total_time = 0.0
-
-                print subset
-                for key, array in iter(durations.items()):
-
-                    print key
-                    sub_array = array[0][i:boundary]
-
-                    for j in range(i, boundary):
-
-                        print sub_array[j]
-                        sub_array[j] *= ratio
-                        total_time += sub_array[j]
-
-                        assert sub_array[j] >= MIN_TEMPO, \
-                        'Higher tempo required for each subsequence; too short duration was calculated: ' + str(sub_array[j])
+                    total_time += durations[j + offset]
 
 
-        if d_mapping > 0:
-            assert round(float(total_time), 5) == round(float(window_duration), 5), \
-                'Durations don\'t  match: ' + str(float(total_time)) + ' ' + str(float(window_duration))"""
+        offset += len(subset)
 
-    for x, y in iter(distance_vectors.items()):
+    if p_algorithm == PitchAlgorithm.WORD_DISTANCES:
 
-        diff = length - last_occurrence[x]
-        distance_vectors[x].append(diff)
+        for x  in distance_vectors.keys(): # iter(distance_vectors.items()):
 
-    d_vectors_len = 0
-    for x in iter(distance_vectors.keys()):
+            diff = offset + 1 - last_occurrence[x]
+            distance_vectors[x].append(diff)
 
-        distance_vectors[x] = np.array(distance_vectors[x])
-        d_vectors_len += np.alen(distance_vectors[x])
+        d_vectors_len = 0
 
-    assert d_vectors_len == length, "Lengths don't match: sequence length = " + str(length) + "; d_vectors length: " + str(d_vectors_len)
+        for x in distance_vectors.keys():
+
+            distance_vectors[x] = np.array(distance_vectors[x])
+            d_vectors_len += len(distance_vectors[x])
+
+        # assert d_vectors_len * step == length, "Lengths don't match: sequence length = " + str(length) + "; d_vectors length: " + str(d_vectors_len)
+    else:
+
+        return pitch_freq_vectors, durations 
 
     # (distances, frequencies per N words)
-    # print distance_vectors, frequencies
+    # print distance_vectors  #, frequencies
     return distance_vectors, durations
 
 
-def gen_stream(score, sequence, pitch_algorithm, durations_algorithm, score_tempo):
-
-    # keyworded arguments:
-    #   window_duration
-    #   step
-    #   signal_gap
+def gen_stream(score, sequence, pitch_algorithm, durations_algorithm):
 
     assert isinstance(pitch_algorithm, PitchAlgorithm) and isinstance(durations_algorithm, DurationsAlgorithm)
 
+    if 'window_size' in durations_algorithm.keys():
+        assert len(sequence) > durations_algorithm['window_size'], \
+            'Invalid piece and window size ' + str(len(sequence)) + ' ' + str(durations_algorithm['window_size'])
+
     dv, durations = gen_pitch_duration_vectors(sequence, pitch_algorithm, durations_algorithm)
 
-    print len(sequence)
 
     for x in dv.keys():
         dv[x] = iter(dv[x])
@@ -756,48 +794,109 @@ def gen_stream(score, sequence, pitch_algorithm, durations_algorithm, score_temp
     durations = iter(durations)
 
     # TODO: integrar esta parte no algoritmo anterior para poupar iteracoes
-    scale_len = len(scale.MajorScale().getPitches())
-    s = scale.MajorScale()
+    # scale_len = len(scale.MajorScale().getPitches())
 
+    assert 'scale' in pitch_algorithm.keys()
+    s = pitch_algorithm['scale']
+    scale_len = len(s)
+
+    assert isinstance(s, list) and len(s) > 1
+
+    # TODO: continuar
     part = stream.Part()
 
-    assert isinstance(score_tempo, tempo.MetronomeMark) and score_tempo == score.getElementsByClass(tempo.MetronomeMark)[0]
+    # assert isinstance(score_tempo, tempo.MetronomeMark) and score_tempo == score.getElementsByClass(tempo.MetronomeMark)[0]
     # part.insert(0, assigned_instrument)
 
     print 'Assigning notes and durations from numeric vectors...'
 
-    for l in sequence:
+    # for l in sequence:
+    step = pitch_algorithm['n_nucleotides']
+    window = durations_algorithm['window_size']
 
-        pitch = dv[l].next()
-        d = durations.next()
+    # TODO: make method
+    # splitting by window value
+    length = len(sequence)
+    split_seq_len = int(length / window) if length % window == 0 else int(length / window) + 1
+    split_sequence = np.zeros((split_seq_len, window), dtype="S1")
 
-        if l is not '-':
+    for i in range(0, split_seq_len):
 
-            n = pitch % scale_len
-            n = s.getPitches()[n]
-            n = note.Note(n)
+        subseq = sequence[ i * window : i * window + window]
+        split_sequence[i][ : len(subseq)] = subseq
+        split_sequence[len(subseq) : ] = ''    
 
-            n.duration = duration.Duration(d)
+    sequence = split_sequence
 
-        else:
+    # splitting in n-nucleotides
+    n_nucleotide_split_len = window / step if window % step == 0 else window / step + 1
+    split_sequence = np.zeros((split_seq_len, n_nucleotide_split_len), dtype="S" + str(step))
 
-            n = note.Rest()
-            n.duration = duration.Duration(d)
+    nucleotides_idx = 0
+    for i in range(0, len(sequence)):
+        
+        subseq = sequence[i]
+        split_subseq = split_sequence[i]
 
-            """else:
-                n = pitch % scale_len
-                n = s.getPitches()[n]
-                n = note.Note(n)
-                n.octave = 10
+        for j in range(0, len(subseq), step):
 
-                n.duration = duration.Duration(10.0)"""
+            for k in range(j, j + step):    
+                split_subseq[nucleotides_idx] += subseq[k]
 
-        n.addLyric(l)
+            nucleotides_idx += 1
 
-        assert isinstance(n, Music21Object)
-        part.append(n)
+        nucleotides_idx = 0
 
-    print 'Insering part on score'
+    sequence = split_sequence
+
+    print 'Shapes', sequence.shape[0], sequence.shape[1]
+
+    for i in range(0, len(sequence)):
+
+        subseq = sequence[i]
+        
+        for symbol in subseq:
+
+            if symbol == '': continue
+
+            pitch = dv[symbol].next()
+            d = durations.next()
+
+            if set(symbol) != ['-']:
+
+                if pitch_algorithm['algorithm'] == PitchAlgorithm.WORD_DISTANCES:
+                    
+                    n = pitch % scale_len
+                    # n = s.getPitches()[n]
+                    n = s[n]
+                    n = note.Note(n)
+
+                else:
+
+                    frac = 1.0 / len(scale)
+
+                    for i in range(0, len_scale):
+                        val = i * frac
+
+                        if pitch == val:
+                            n = s[i]
+                            n = note.Note(n)
+
+                n.duration = duration.Duration(d)
+
+            else:
+
+                n = note.Rest()
+                n.duration = duration.Duration(d)
+
+                n.addLyric(symbol)
+
+                assert isinstance(n, Music21Object)
+
+            part.append(n)
+
+    print 'Inserting part on score', len(part)
+
     score.insert(0, part)
     print 'Done'
 
@@ -830,7 +929,20 @@ def gen_song(pitch_algorithm, durations_algorithm, dynamics_algorithm, alignment
 
     alignment = np.array([[y for y in x] for x in alignment])
 
-    for p in range(0, np.alen(alignment[0]), piece_length):
+    similarities_df = pd.DataFrame(np.empty(np.floor(float(alignment.shape[1]) / 5000).astype(int),
+                                            dtype=[('idx', np.uint8), ('jaccard', np.float), ('tempo', np.float)]))
+
+    k = np.random.choice(np.arange(4, 9), 1)[0]
+    n_classes = 3
+
+    print 'K =', k
+
+    piece_idx = 0
+
+    for p in range(0, alignment.shape[1], piece_length):
+
+        if alignment.shape[1] - p < piece_length:
+            piece_length = alignment.shape[1] - p
 
         score = stream.Score()
 
@@ -841,11 +953,22 @@ def gen_song(pitch_algorithm, durations_algorithm, dynamics_algorithm, alignment
 
         print 'Generating pitches and durations...'
 
-        subalignment = alignment[:, p:p+piece_length]
+        """subalignments = np.empty((2, alignment.shape[0], piece_length), dtype=np.dtype(str))
 
-        for i in range(0, np.alen(alignment)):
-            # gen_stream(score, subalignment[i], pitch_algorithm, durations_algorithm, instruments[i], score_tempo)
-            gen_stream(score, subalignment[i], pitch_algorithm, durations_algorithm, score_tempo)
+        print subalignments[0].shape, alignment[:, p-piece_length:p].shape
+        subalignments[0] = alignment[:, p-piece_length:p] # prev
+        subalignments[1] = alignment[:, p:p + piece_length]   # current
+
+        similarities_df['idx'][piece_idx] = piece_idx
+        similarities_df['jaccard'][piece_idx] = calc_jaccard_similarities(subalignment, k=k, inter_alignments=True)['jaccard'][0]
+        piece_idx += 1
+        # subalignment = alignment[:, p:p+piece_length]
+        """
+
+        subsequence = alignment[:, p : p + piece_length]
+        
+        for i in range(0, alignment.shape[0]):
+            gen_stream(score, subsequence[i], pitch_algorithm, durations_algorithm)
 
         print 'Checking if parts have the same total duration...'
 
@@ -877,13 +1000,29 @@ def gen_song(pitch_algorithm, durations_algorithm, dynamics_algorithm, alignment
                     diff = score.highestTime - part.highestTime
 
         # dynamics_vector = gen_dynamics_vector(msa, dynamics_algorithm)
-        dynamics_vector = gen_dynamics_vector(subalignment, dynamics_algorithm)
+        dynamics_vector = gen_dynamics_vector(subsequence, dynamics_algorithm)
 
         volumes = dynamics_vector['vol']
         window_size = dynamics_algorithm['window_size']
 
-        score = add_dynamics_to_score(volumes, score, window_size, instruments)
+        # score = add_dynamics_to_score(volumes, score, window_size, instruments)
         scores.append(score)
+
+    print similarities_df
+
+    classes = np.arange(40, 145, (145 - 40) / n_classes, dtype=np.uint8)
+    print classes
+
+    jaccard_indices = np.array_split(similarities_df['jaccard'], n_classes)
+    class_size = len(jaccard_indices[0])
+
+    j = 0
+    for i in range(0, len(classes)):
+        similarities_df['tempo'][j:j + class_size] = classes[i]
+        print 'L', len(similarities_df['tempo'][j:j + class_size])
+        j += class_size
+
+    similarities_df = similarities_df.sort_values('idx')
 
     # parte estatistica e output de ficheiros para @FileWriter
     # retornar score, utilizar dynamics_algorithm, adicionar volumes a score e analisar score
@@ -912,15 +1051,10 @@ def gen_random_seqs(n, MAX, filename):
 
 ###### SIMILARITIES ############
 
-
+"""
 # splits a given sequence from an MSA with alphabet {'A','G','C','T','-'} into shingles
 # this technique is based on the k-shingles approach used in document matching algorithms
 def split_into_shingles(sequence, k=2):
-    """ TODO: prever alfabeto de notas ou duracoes
-    for symbol in sequence:
-        if symbol not in ['a','g','c','t','-']:
-            print 'Invalid sequence alphabet: ', set(sequence)
-            return None	"""
 
     length = len(sequence)
     if k < 1 or k > length:
@@ -941,7 +1075,6 @@ def split_into_shingles(sequence, k=2):
 
         i += 1
 
-    # print shingles
     return shingles
 
 
@@ -1034,7 +1167,7 @@ def calc_jaccard_similarities(sets, k=2, inter_alignments=False):
 
     # df = pd.DataFrame(data=jaccard_dict)
     return jaccard_df
-
+"""
 
 # score tokenizer
 def tokenize_score(score):
@@ -1062,7 +1195,7 @@ def tokenize_score(score):
     return duration_notes_tokens
 
 
-def get_sequence_similarities(alignment, score, k=2, n=1):
+"""def get_sequence_similarities(alignment, score, k=2, n=1):
 
     assert (isinstance(alignment, np.ndarray) or isinstance(alignment, MultipleSeqAlignment)) and isinstance(score, stream.Score)
     assert len(score.parts) > 0
@@ -1079,15 +1212,142 @@ def get_sequence_similarities(alignment, score, k=2, n=1):
     calc_jaccard_similarities(alignment, k=k)
     calc_jaccard_similarities(tokenized_score[:, 0], k=k)
     calc_jaccard_similarities(tokenized_score[:, 1], k=k)
+"""
+
+
+def cluster_by_lsh(sets, k=2, num_perm=128):
+
+    # list of 2d ndarrays or 3d ndarray
+    assert (isinstance(sets, np.ndarray) and len(sets.shape) == 3) or (isinstance(sets, list) and all(isinstance(x, np.ndarray) and len(x.shape) == 2 for x in sets))                                      # 3d ndarray
+    assert isinstance(k, int) and k > 0
+
+    n_pieces = len(sets)
+    n_rows = sets.shape[1]
+    n_cols = sets.shape[2]
+
+    n_sequence = n_cols + k - 1
+    n_shingle_elements = n_sequence - k + 1
+
+    # shingles = np.empty((n_pieces, n_rows * (n_shingle_elements)), dtype="S" + str(k))
+
+    minhashes = []
+
+    # pieces
+    shingles_idx = 0
+    for p in range(0, n_pieces):
+
+        piece = sets[p]
+
+        minhash = dk.MinHash(num_perm=num_perm)
+        shingles = np.empty(n_rows * n_shingle_elements, dtype="S" + str(k))
+
+        # iterating sequences from a region
+        for s in range(0, len(piece)):
+
+            # input sequence considering surplus characters
+            sequence = np.empty((n_sequence,), dtype="S1")
+            sequence[0: n_cols] = piece[s]
+
+            if p != n_pieces - 1: # if we aren't on the last piece:
+
+                next_piece = sets[p+1]
+                sequence[n_cols :] = next_piece[s][0 : k-1]  # surplus
+            else:
+
+                sequence[n_cols :] = 'Z' # TODO: possivelmente substituir por valor mais provavel
+
+            shingled_sequence = split_into_shingles(sequence, k=k)
+            assert len(shingled_sequence) == n_shingle_elements, \
+                'Shingled sequence: ' + str(len(shingled_sequence)) + ' and fixed len ' + str(n_shingle_elements)
+
+            # print 'Seq len', len(sequence)
+            # print 'Len', len(shingled_sequence), 'Seq', shingled_sequence
+            # print 'Shingle len', len(shingles[p][shingles_idx : shingles_idx + n_cols + 1])
+            # shingles[p][:, shingles_idx: shingles_idx + len(sequence) - 1] = shingled_sequence
+            print shingles_idx + n_cols
+
+            # shingles[p][shingles_idx : shingles_idx + n_shingle_elements] = shingled_sequence
+            shingles[shingles_idx: shingles_idx + n_shingle_elements] = shingled_sequence
+            shingles_idx += n_shingle_elements
+
+        for word in shingles:
+            minhash.update(word)
+
+        minhashes.append(minhash)
+        shingles_idx = 0
+
+        # shingle_str = [''.join(s) for s in shingles[piece].astype(str)]
+        #for s in shingles[piece]:
+        #    minhash.update(s.encode('utf-8'))
+
+    assert len(minhashes) == n_pieces
+    print shingles
+
+    distance_matrix = np.empty((n_pieces, n_pieces), dtype=np.float)
+
+    for i in range(0, len(minhashes)):
+        for j in range(0, len(minhashes)):
+
+            if i == j:
+                distance_matrix[i][j] = 0
+            else:
+
+                similarity = minhashes[i].jaccard(minhashes[j])
+
+                if similarity == 0:
+                    distance_matrix[i][j] = 1
+                else:
+                    distance_matrix[i][j] = 1 / similarity
+
+    print distance_matrix
+
+    from scipy.cluster.hierarchy import dendrogram
+    from scipy.cluster.hierarchy import fcluster, linkage
+
+    Z = linkage(distance_matrix)
+
+    import matplotlib.pyplot as plt
+    dendrogram(Z, show_leaf_counts=True)
+
+    plt.show()
+
+    return fcluster(Z, 0.3)
+
+
+# splits a given sequence from an MSA with alphabet {'A','G','C','T','-'} into shingles
+# this technique is based on the k-shingles approach used in document matching algorithms
+def split_into_shingles(sequence, k=2):
+
+    length = len(sequence)
+    if k < 1 or k > length:
+        print 'Invalid parameter k ', k, ' for sequence length ', length
+        return None
+
+    # tokenizer
+    n_shingles = length - k + 1  # experimental value !!
+
+    shingles = np.zeros((n_shingles, ), dtype="S" + str(k))
+
+    i = 0
+    while length - i >= k:
+
+        for s in sequence[i : i + k]:
+            shingles[i] += s
+        # shingles[i] = [''.join(s) for s in sequence[i : i + k].astype(str)]
+        i += 1
+
+    print shingles
+    return shingles
+
 
 
 if __name__ == "__main__":
 
     msa = AlignIO.read('output.fasta', 'clustal')
-
     msa = np.array([[y for y in x] for x in msa])
 
-    piece_length = 5000
+
+    """piece_length = 5000
 
     pieces = []
 
@@ -1146,38 +1406,4 @@ if __name__ == "__main__":
         j += class_size
 
     print similarities_df.sort_values('idx')
-    # jaccard_indices['tempo'] = pd.Series(data=np.zeros(len(jaccard_indices['i'])))
-    """
-    msa = np.array([np.array(seq) for seq in msa])
-
-    algorithm = DynamicsAlgorithm('entropy', window_size=3000)
-    algorithm['criteria'] = 'average'
-
-    d_vector = gen_dynamics_vector(msa, algorithm)
-
-    from math import ceil
-
-    windows = ceil(float(np.alen(msa[0]))/3000)+1
-    left = np.arange(windows)
-    height = d_vector['entropy']
-
-    print height[-1]
-    plt.bar(left, height)
-    plt.savefig('fig.png')
-    plt.close()"""
-
-    """
-    TEST_FILE_2 = SEQ_DIR + '/mafft_164358.fasta'
-
-    for i in range(10,21):
-        gen_song(TEST_FILE_1, duration_mapping=1, block=20, window_duration=i, show_score=False,
-                 output_midi='Oryzas_1_' + str(i) + '.mid',audio=True)
-        gen_song(TEST_FILE_1, duration_mapping=2, block=20, window_duration=i, show_score=False,
-                 output_midi='Oryzas_2_' + str(i) + '.mid',audio=True)
-
-    for i in range(20,26):
-        gen_song(TEST_FILE_2, duration_mapping=1, block=20, window_duration=i, show_score=False,
-             output_midi='OryzasAmmotheas_1_' + str(i) + '.mid',audio=True)
-        gen_song(TEST_FILE_2, duration_mapping=2, block=20, window_duration=i, show_score=False,
-             output_midi='OryzasAmmotheas_2_' + str(i) + '.mid',audio=True)"""
-
+    # jaccard_indices['tempo'] = pd.Series(data=np.zeros(len(jaccard_indices['i'])))"""

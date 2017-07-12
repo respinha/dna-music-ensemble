@@ -17,7 +17,7 @@ class Algorithm(dict):
         assert algorithm in self.valid_algorithms
         self['algorithm'] = algorithm
 
-    def __repr__(self):
+    """def __repr__(self):
 
         ret = self.__str__() + ':\n'
 
@@ -31,7 +31,7 @@ class Algorithm(dict):
         for key, val in self.items():
             ret += key + ': ' + str(val)
 
-        return ret
+        return ret"""
 
 
 # pitch algorithms
@@ -43,6 +43,7 @@ class DurationsAlgorithm(Algorithm):
 
     FREQUENCIES_DYNAMIC = 'frequencies_dynamic'
     FREQUENCIES_DISCRETE = 'frequencies_discrete'
+    WORD_DISTANCES = 'word_distances'
 
     def __init__(self, algorithm='frequencies', **kwargs):
         super(DurationsAlgorithm, self).__init__(algorithm, **kwargs)
@@ -67,10 +68,11 @@ class DurationsAlgorithm(Algorithm):
 class PitchAlgorithm(Algorithm):
 
     valid_algorithms = ['static_assign', 'word_distances']
-    valid_params = ['scale_vector', 'n_nucleotides']
+    valid_params = ['scale', 'n_nucleotides']
 
     STATIC_ASSIGN = 'static_assign'
     WORD_DISTANCES = 'word_distances'
+    WORD_FREQ = 'word_frequencies'
 
     def __init__(self, algorithm, **kwargs):
         super(PitchAlgorithm, self).__init__(algorithm, **kwargs)
@@ -79,10 +81,10 @@ class PitchAlgorithm(Algorithm):
             for key, value in kwargs.items():
                 assert key in self.valid_params, 'Invalid key for ' + self.__str__() + ': ' + key
 
-                if key == 'scale_vector':
+                if key == 'scale':
 
                     # assert isinstance(value, list) or isinstance(value, np.ndarray) or is todo: rever estrutura a usar
-                    assert isinstance(value, scale.Scale)
+                    assert isinstance(value, scale.Scale) or isinstance(value, list)
                 else:
                     assert isinstance(value, int)
 

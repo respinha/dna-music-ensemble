@@ -80,7 +80,7 @@ class Composer(object):
         assert isinstance(msa, MultipleSeqAlignment)
 
         # return [instrument.Glockenspiel(), instrument.SleighBells(), instrument.Gong(), instrument.Marimba()]
-        return [instrument.Vibraphone(), instrument.Glockenspiel(), instrument.Marifrmba(), instrument.Marimba()]
+        return [instrument.Vibraphone(), instrument.Glockenspiel(), instrument.Marimba(), instrument.Marimba()]
         """instr = []
         for i in range(0, 4):
             instr.append(instrument.Vibraphone())
@@ -137,11 +137,13 @@ class FileWriter(object):
         self.records = records
 
         assert isinstance(score, stream.Score) and isinstance(records, np.ndarray)
-        assert np.alen(score.parts) == np.alen(records)
+
+        print score.parts, records
+        assert len(score.parts) == len(records), str(len(score.parts)) + ' ' + str(len(records))
 
     def write(self, name='alignment', display=False, stats=None, **kwargs):
 
-        if np.alen(kwargs.keys()) == 0:
+        if len(kwargs.keys()) == 0:
             print 'No output type or path specified'
             sys.exit(1)
 
@@ -269,8 +271,9 @@ def run():
 
     from music21 import scale
 
-    pitch_algo = PitchAlgorithm(PitchAlgorithm.WORD_DISTANCES, scale_vector=scale.MajorScale(), n_nucleotides=1)
-    durations_algo = DurationsAlgorithm(DurationsAlgorithm.FREQUENCIES_DYNAMIC, window_size=1000, window_duration=500, n_nucleotides=1)
+    print scale.MajorScale().getPitches()
+    pitch_algo = PitchAlgorithm(PitchAlgorithm.WORD_DISTANCES, scale=scale.MajorScale().getPitches(), n_nucleotides=2)
+    durations_algo = DurationsAlgorithm(DurationsAlgorithm.FREQUENCIES_DYNAMIC, window_size=1000, window_duration=500, n_nucleotides=2)
     dynamics_algo = DynamicsAlgorithm(DynamicsAlgorithm.SHANNON_INDEX, window_size=2500, gap_window_threshold=0.5, gap_column_threshold=0.7, criteria='local', levels=7)
 
     instruments_algo = ClusteringAlgorithm('kmeans')
@@ -279,7 +282,7 @@ def run():
     scores = composer.gen_numerical_vectors()
 
     msa = AlignIO.read(aln_file, 'clustal')
-    sequences = np.chararray(np.alen(msa), itemsize=25)
+    sequences = np.chararray(len(msa), itemsize=25)
 
     i = 0
     for record in msa:
@@ -292,8 +295,12 @@ def run():
 
         fw = FileWriter(score, sequences)
         fname = 'test_fast_' + str(i)
+
+        print 'fname', fname
         fw.write(midi=fname, audio=fname, display=False)
         i += 1
+
+    print 'Done'
 
 import multiprocessing
 import time
