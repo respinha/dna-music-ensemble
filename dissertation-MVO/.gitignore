@@ -63,3 +63,9 @@ tests.py
 *.txt
 
 /output_files/
+
+*.xml
+*.wav
+*.pdf
+*.pyc
+*test*
