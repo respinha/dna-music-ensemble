@@ -249,20 +249,26 @@ def get_clusters_from_alignment(msa, **kwargs):
         else:
             print 'Invalid cluster algorithm'
             raise NotImplementedError
+            
+        if 'algorithm' in kwargs:
+            
+            instruments = []
+                
+            if 'instruments_pool' in kwargs['algorithm']:
+                pass
+            else:
+                
+                instruments_pool = PitchedPercussion.__subclasses__()
+                shuffle(instruments_pool)
+                instruments_pool = instruments_pool[:nclusters]
 
-        from random import shuffle
+                i = 0
+                for cluster in clusters:
+                    instruments[i] = instruments_pool[cluster]
+                    i += 1
 
-        instruments_pool = PitchedPercussion.__subclasses__()
-        shuffle(instruments_pool)
-        instruments_pool = instruments_pool[:nclusters]
-
-        # TODO: TEST!
-        i = 0
-        for cluster in clusters:
-            instruments[i] = instruments_pool[cluster]
-            i += 1
-
-        return instruments
+                print('Instruments used', instruments);
+            return instruments
 
     return None
 
@@ -320,7 +326,7 @@ def gen_dynamics_vector(msa, dynamics_algorithm):
     # criteria: local, avg ou median entropy
     assert isinstance(dynamics_algorithm, DynamicsAlgorithm)
     assert 'window_size' in dynamics_algorithm.keys(), 'Empty window for dynamics algorithm'
-    assert dynamics_algorithm['algorithm'] == DynamicsAlgorithm.SHANNON_INDEX # todo: only one option for now; implement simpson index afterwards
+    assert dynamics_algorithm['algorithm'] == DynamicsAlgorithm.SHANNON_INDEX
 
     window = dynamics_algorithm['window_size']
 
@@ -343,7 +349,8 @@ def gen_dynamics_vector(msa, dynamics_algorithm):
 
     from math import ceil
 
-    n_windows = ceil(float(aln_len)/window)+1
+    n_windows = np.int(ceil(float(aln_len)/window)+1)
+
     gaps_below_thresh = np.zeros(n_windows, dtype=np.bool)
 
     window_idx = 0
@@ -517,11 +524,6 @@ def add_dynamics_to_score(dynamics_vector, score, window_size, instruments, max_
 #   - a label array with the assigned duration of each nucleotide
 def gen_pitch_duration_vectors(sequence, pitch_algorithm, durations_algorithm):
 
-    # kwargs:
-    #   - window_duration
-    #   - step
-    #   - duration_mapping
-
     assert isinstance(pitch_algorithm, PitchAlgorithm) and isinstance(durations_algorithm, DurationsAlgorithm)
     assert sequence is not None
 
@@ -563,7 +565,6 @@ def gen_pitch_duration_vectors(sequence, pitch_algorithm, durations_algorithm):
 
         assert len(scale) > 0
 
-    # print [x for x in sequence]
 
     # splitting by window value
     split_seq_len = int(length / window) if length % window == 0 else int(length / window) + 1
@@ -626,35 +627,31 @@ def gen_pitch_duration_vectors(sequence, pitch_algorithm, durations_algorithm):
 
         total_time = 0.0
 
-        # for j in range(i, boundary, step):
-        # for j in range(i, boundary):
         for j in range(0, len(subset)):
 
             if subset[j] == '': continue
 
-            # local_count = int(counts[subset[j - i]])
             local_count = int(counts[subset[j]])
             freq = float(local_count) / len(subset)
 
             # pitch algorithm
             if p_algorithm == PitchAlgorithm.WORD_DISTANCES or d_algorithm == DurationsAlgorithm.WORD_DISTANCES:
 
-                # TODO: fazer uma primeira passagem pela sequencia inteira
-                # para saber o numero exato de nucleotidos e reservar np.arrays??
+                # TODO: optimization
+                #   fazer uma primeira passagem pela sequencia inteira
+                #   para saber o numero exato de nucleotidos e reservar np.arrays??
                 letter = subset[j]
 
                 if letter not in distance_vectors.keys():
                     distance_vectors[letter] = []
 
                 else:
-                    # diff = j - last_occurrence[letter]
+
                     diff = j + offset - last_occurrence[letter]
                     distance_vectors[letter].append(diff)
 
-                # last_occurrence[letter] = j
                 last_occurrence[letter] = j + offset
 
-            
             if p_algorithm == PitchAlgorithm.WORD_FREQ:
 
                 # e.g. major scale - C-D-E-F-G-A-B-C
@@ -686,11 +683,8 @@ def gen_pitch_duration_vectors(sequence, pitch_algorithm, durations_algorithm):
                 total_time += local_duration
 
                 # assert local_duration > MIN_TEMPO, \
-                #    'Higher tempo required for each subsequence; too short duration was calculated: ' + str(local_duration)
-
-                # todo: test
+                #    'Higher tempo required for each subsequence; too short duration was calculated: ' + str(local_duration
                 if local_duration < MIN_TEMPO:
-                    # print 'WARNING: Converting local duration to minimum tempo!'
                     local_duration = MIN_TEMPO
 
             # duration biased with discrete attributions
@@ -777,7 +771,7 @@ def gen_pitch_duration_vectors(sequence, pitch_algorithm, durations_algorithm):
     return distance_vectors, durations
 
 
-def gen_stream(score, sequence, pitch_algorithm, durations_algorithm):
+def gen_stream(score, sequence, pitch_algorithm, durations_algorithm, assigned_instrument):
 
     assert isinstance(pitch_algorithm, PitchAlgorithm) and isinstance(durations_algorithm, DurationsAlgorithm)
 
@@ -786,7 +780,6 @@ def gen_stream(score, sequence, pitch_algorithm, durations_algorithm):
             'Invalid piece and window size ' + str(len(sequence)) + ' ' + str(durations_algorithm['window_size'])
 
     dv, durations = gen_pitch_duration_vectors(sequence, pitch_algorithm, durations_algorithm)
-
 
     for x in dv.keys():
         dv[x] = iter(dv[x])
@@ -802,11 +795,11 @@ def gen_stream(score, sequence, pitch_algorithm, durations_algorithm):
 
     assert isinstance(s, list) and len(s) > 1
 
-    # TODO: continuar
     part = stream.Part()
 
     # assert isinstance(score_tempo, tempo.MetronomeMark) and score_tempo == score.getElementsByClass(tempo.MetronomeMark)[0]
-    # part.insert(0, assigned_instrument)
+    print 'Assigned instrument', assigned_instrument
+    part.insert(0, assigned_instrument)
 
     print 'Assigning notes and durations from numeric vectors...'
 
@@ -830,7 +823,8 @@ def gen_stream(score, sequence, pitch_algorithm, durations_algorithm):
 
     # splitting in n-nucleotides
     n_nucleotide_split_len = window / step if window % step == 0 else window / step + 1
-    split_sequence = np.zeros((split_seq_len, n_nucleotide_split_len), dtype="S" + str(step))
+    #print 'split seq len', split_seq_len, 'n_nucleotide split len', n_nucleotide_split_len
+    split_sequence = np.zeros((split_seq_len, np.int(n_nucleotide_split_len)), dtype="S" + str(step))
 
     nucleotides_idx = 0
     for i in range(0, len(sequence)):
@@ -875,7 +869,7 @@ def gen_stream(score, sequence, pitch_algorithm, durations_algorithm):
 
                     frac = 1.0 / len(scale)
 
-                    for i in range(0, len_scale):
+                    for i in range(0, len(scale)):
                         val = i * frac
 
                         if pitch == val:
@@ -901,14 +895,14 @@ def gen_stream(score, sequence, pitch_algorithm, durations_algorithm):
     print 'Done'
 
 
-def gen_song(pitch_algorithm, durations_algorithm, dynamics_algorithm, alignment, instruments, piece_length=5000):
+def gen_song(pitch_algorithm, durations_algorithm, dynamics_algorithm, alignment, instruments, k_shingles, piece_length=5000):
 
     ####### ALIGNMENT HANDLING ##############
     assert (alignment is not None), 'No MSA provided'
 
-    assert alignment \
-           and (isinstance(alignment, MultipleSeqAlignment) or
-                (isinstance(alignment, str) and os.path.isfile(alignment)))
+    assert isinstance(alignment, MultipleSeqAlignment) or\
+           (isinstance(alignment, str) and os.path.isfile(alignment)) or\
+           (isinstance(alignment, np.ndarray) and len(alignment.shape) == 2)
 
     if isinstance(alignment, str):
 
@@ -919,23 +913,34 @@ def gen_song(pitch_algorithm, durations_algorithm, dynamics_algorithm, alignment
         print 'Opening phylip file...'
         alignment = AlignIO.read(open(aln_file.split('.')[0] + ".phy"), 'phylip-relaxed')
 
-    assert isinstance(piece_length, int) or isinstance(piece_length, float) and piece_length > 60
-
-    # step = 1 if not pitch_algorithm['n_nucleotides'] else pitch_algorithm['n_nucleotides']
+    assert isinstance(piece_length, int) or isinstance(piece_length, float) # and piece_length > 60
 
     # piece_length for now is only referring to number of musical elements
     # n_pieces = len(alignment[0]) / (step * piece_length)
     scores = []
+    if not isinstance(alignment, np.ndarray):
+        alignment = np.array([[y for y in x] for x in alignment])
 
-    alignment = np.array([[y for y in x] for x in alignment])
+    # k = np.random.choice(np.arange(3, 7), 1)[0] # random number between 3 and 6; used for k-shingling
+    print 'K =', k_shingles
 
-    similarities_df = pd.DataFrame(np.empty(np.floor(float(alignment.shape[1]) / 5000).astype(int),
-                                            dtype=[('idx', np.uint8), ('jaccard', np.float), ('tempo', np.float)]))
+    from similarity import SimHandler
 
-    k = np.random.choice(np.arange(4, 9), 1)[0]
-    n_classes = 3
+    split_len = int(alignment.shape[1] / piece_length) if alignment.shape[1] % piece_length == 0 else int(alignment.shape[1] / piece_length) + 1
 
-    print 'K =', k
+    print 'Split params', alignment.shape[1], piece_length, split_len
+    print 'Aln', alignment
+    split_alignment = np.array_split(alignment, split_len, axis=1)
+
+    # print 'N_TEMPOS', len(split_alignment), split_alignment[0].shape[0]
+    # sys.exit(1)
+    sim = SimHandler(split_alignment, k=k_shingles)
+    clusters = sim.cluster_by_similarites()
+
+    tempos = np.arange(45, 160, (160 - 45) / len(clusters))
+    tempos_vector = sim.assign_tempos_by_clusters(clusters, tempos)
+
+    assert len(tempos_vector) == len(clusters) == len(split_alignment)
 
     piece_idx = 0
 
@@ -946,29 +951,19 @@ def gen_song(pitch_algorithm, durations_algorithm, dynamics_algorithm, alignment
 
         score = stream.Score()
 
-        # TODO: Make tempo dynamic
-        # score_tempo = tempo.MetronomeMark('Larghissimo', 19)
-        score_tempo = tempo.MetronomeMark('adagio', 125)
+        score_tempo = tempo.MetronomeMark('tempo', tempos_vector[piece_idx])
+
+        print 'SCORE TEMPO', score_tempo._number
         score.insert(0, score_tempo)
 
         print 'Generating pitches and durations...'
 
-        """subalignments = np.empty((2, alignment.shape[0], piece_length), dtype=np.dtype(str))
-
-        print subalignments[0].shape, alignment[:, p-piece_length:p].shape
-        subalignments[0] = alignment[:, p-piece_length:p] # prev
-        subalignments[1] = alignment[:, p:p + piece_length]   # current
-
-        similarities_df['idx'][piece_idx] = piece_idx
-        similarities_df['jaccard'][piece_idx] = calc_jaccard_similarities(subalignment, k=k, inter_alignments=True)['jaccard'][0]
-        piece_idx += 1
-        # subalignment = alignment[:, p:p+piece_length]
-        """
-
         subsequence = alignment[:, p : p + piece_length]
-        
+
+        regions_file = open('regions_' + str(piece_idx) + '.txt', 'wra')
         for i in range(0, alignment.shape[0]):
-            gen_stream(score, subsequence[i], pitch_algorithm, durations_algorithm)
+            regions_file.write(np.array_str(subsequence[i]))
+            gen_stream(score, subsequence[i], pitch_algorithm, durations_algorithm, instruments[i])
 
         print 'Checking if parts have the same total duration...'
 
@@ -999,16 +994,16 @@ def gen_song(pitch_algorithm, durations_algorithm, dynamics_algorithm, alignment
                     part.append(n)
                     diff = score.highestTime - part.highestTime
 
-        # dynamics_vector = gen_dynamics_vector(msa, dynamics_algorithm)
         dynamics_vector = gen_dynamics_vector(subsequence, dynamics_algorithm)
 
         volumes = dynamics_vector['vol']
         window_size = dynamics_algorithm['window_size']
 
-        # score = add_dynamics_to_score(volumes, score, window_size, instruments)
         scores.append(score)
 
-    print similarities_df
+        piece_idx += 1
+
+    """print similarities_df
 
     classes = np.arange(40, 145, (145 - 40) / n_classes, dtype=np.uint8)
     print classes
@@ -1022,7 +1017,7 @@ def gen_song(pitch_algorithm, durations_algorithm, dynamics_algorithm, alignment
         print 'L', len(similarities_df['tempo'][j:j + class_size])
         j += class_size
 
-    similarities_df = similarities_df.sort_values('idx')
+    similarities_df = similarities_df.sort_values('idx')"""
 
     # parte estatistica e output de ficheiros para @FileWriter
     # retornar score, utilizar dynamics_algorithm, adicionar volumes a score e analisar score
@@ -1051,124 +1046,6 @@ def gen_random_seqs(n, MAX, filename):
 
 ###### SIMILARITIES ############
 
-"""
-# splits a given sequence from an MSA with alphabet {'A','G','C','T','-'} into shingles
-# this technique is based on the k-shingles approach used in document matching algorithms
-def split_into_shingles(sequence, k=2):
-
-    length = len(sequence)
-    if k < 1 or k > length:
-        print 'Invalid parameter k ', k, ' for sequence length ', length
-        return None
-
-    # tokenizer
-    n_shingles = length - k + 1  # experimental value !!
-    shingles = np.zeros((n_shingles, k), dtype="S2")
-
-    i = 0
-    while length - i >= k:
-        # if length - i < k:
-        #	break
-
-        for j in range(0, k):
-            shingles[i][j] = sequence[i + j]
-
-        i += 1
-
-    return shingles
-
-
-def calc_jaccard_similarities(sets, k=2, inter_alignments=False):
-
-    assert len(set(len(subset) for subset in sets)) == 1
-    assert isinstance(sets, np.ndarray)
-
-    # print sets.shape, len(sets[0])
-    # print len(sets[0]) - k + 1
-    # print len(sets)
-
-    assert isinstance(inter_alignments, bool)
-
-    minhashes = []
-
-    if inter_alignments:
-
-        assert len(sets.shape) == 3
-
-        shingles = np.empty((sets.shape[0], sets.shape[1] * (sets.shape[2] - k + 1), k), dtype="S2")
-
-        shingle_idx = 0
-        set_row_len = sets.shape[2] - k + 1
-
-        for i in range(0, sets.shape[0]):
-
-            m = dk.MinHash()
-            for j in range(0, sets.shape[1]):
-
-                # print 'N shingles', len(sets[i][j]) - k + 1
-
-                shingles[i, shingle_idx : shingle_idx + set_row_len] = split_into_shingles(sets[i][j], k=k)
-                shingle_idx += set_row_len
-
-            shingle_idx = 0
-
-            shingle_str = [''.join(s) for s in shingles[i].astype(str)]
-            for s in shingle_str:
-                m.update(s.encode('utf-8'))
-
-            minhashes.append(m)
-
-    # if not inter_alignments:
-    else:
-        shingles = np.zeros((len(sets), len(sets[0]) - k + 1, k), dtype="S2")
-
-        for i in range(0, len(sets)):
-
-            shingles[i] = split_into_shingles(sets[i], k=k)
-            m = dk.MinHash()
-
-            # for s in shingles[i]:
-            shingle_str = [''.join(s) for s in shingles[i].astype(str)]
-            for s in shingle_str:
-                m.update(s.encode('utf-8'))
-            minhashes.append(m)
-
-    assert len(sets) == len(minhashes)
-
-    if not inter_alignments:
-        n_rows = len(sets) * (len(sets) -1)
-    else:
-
-        n_rows = sets.shape[0] - 1
-
-    # df = pd.DataFrame(data=np.zeros(permutations, 3), index='index', columns=['seq i', 'seq j', 'jaccard'], dtype=np.float)
-    # jaccard_dict = {'jaccard' : np.zeros(permutations, dtype=np.float), 'seq i': np.zeros(permutations, dtype=np.int), 'seq j' : np.zeros(permutations, dtype=np.int)}
-
-    jaccard_df = pd.DataFrame(np.empty((n_rows, ), dtype=[('i', np.uint8), ('j', np.uint8), ('jaccard', np.float)]))
-
-    row = 0
-    for i in range(0, len(sets)):
-        for j in range(0, len(sets)):
-
-            if i != j and not ((jaccard_df['i'] == 2) & (jaccard_df['j'] == 5)).any():  # excluding intersections
-
-                str1 = [''.join(s) for s in shingles[i].astype(str)]
-                str2 = [''.join(s) for s in shingles[j].astype(str)]
-
-                jaccard = minhashes[i].jaccard(minhashes[j])
-
-                # print i, j, float(len(set(str2) & set(str1))) / len(set(str2) | set(str1))
-
-                jaccard_df['i'][row] = i
-                jaccard_df['j'][row] = j
-                jaccard_df['jaccard'][row] = jaccard
-
-                row += 1
-
-    # df = pd.DataFrame(data=jaccard_dict)
-    return jaccard_df
-"""
-
 # score tokenizer
 def tokenize_score(score):
     assert isinstance(score, stream.Stream)  # && len(score.parts) <= 1
@@ -1179,23 +1056,9 @@ def tokenize_score(score):
     # note_tokens = np.empty(len(score.getElementsByClass(note.GeneralNote)), dtype="S2")
 
     i = 0
-    for element in score:
+    return jaccard_df
 
-        if isinstance(element, note.GeneralNote):
-            d = element.seconds
-            n = element.name
-
-            duration_notes_tokens[i][0] = str(d)
-            duration_notes_tokens[i][1] = str(n)
-
-            # print duration_tokens[i], note_tokens[i]
-
-            i += 1
-
-    return duration_notes_tokens
-
-
-"""def get_sequence_similarities(alignment, score, k=2, n=1):
+def get_sequence_similarities(alignment, score, k=2, n=1):
 
     assert (isinstance(alignment, np.ndarray) or isinstance(alignment, MultipleSeqAlignment)) and isinstance(score, stream.Score)
     assert len(score.parts) > 0
@@ -1212,133 +1075,25 @@ def tokenize_score(score):
     calc_jaccard_similarities(alignment, k=k)
     calc_jaccard_similarities(tokenized_score[:, 0], k=k)
     calc_jaccard_similarities(tokenized_score[:, 1], k=k)
-"""
 
 
-def cluster_by_lsh(sets, k=2, num_perm=128):
+def get_sequence_similarities(alignment, score, k=2, n=1):
 
-    # list of 2d ndarrays or 3d ndarray
-    assert (isinstance(sets, np.ndarray) and len(sets.shape) == 3) or (isinstance(sets, list) and all(isinstance(x, np.ndarray) and len(x.shape) == 2 for x in sets))                                      # 3d ndarray
-    assert isinstance(k, int) and k > 0
+    assert (isinstance(alignment, np.ndarray) or isinstance(alignment, MultipleSeqAlignment)) and isinstance(score, stream.Score)
+    assert len(score.parts) > 0
 
-    n_pieces = len(sets)
-    n_rows = sets.shape[1]
-    n_cols = sets.shape[2]
+    n_notes = len(score.parts[0].getElementsByClass(note.GeneralNote))
 
-    n_sequence = n_cols + k - 1
-    n_shingle_elements = n_sequence - k + 1
+    assert len(alignment) == len(score) and len(alignment[0]) == float(n_notes)/n
 
-    # shingles = np.empty((n_pieces, n_rows * (n_shingle_elements)), dtype="S" + str(k))
+    tokenized_score = np.empty((len(score), 2, n_notes), dtype="S14")
 
-    minhashes = []
+    for i in range(0, len(score.parts)):
+        tokenized_score[i] = tokenized_score(score.parts[i])
 
-    # pieces
-    shingles_idx = 0
-    for p in range(0, n_pieces):
-
-        piece = sets[p]
-
-        minhash = dk.MinHash(num_perm=num_perm)
-        shingles = np.empty(n_rows * n_shingle_elements, dtype="S" + str(k))
-
-        # iterating sequences from a region
-        for s in range(0, len(piece)):
-
-            # input sequence considering surplus characters
-            sequence = np.empty((n_sequence,), dtype="S1")
-            sequence[0: n_cols] = piece[s]
-
-            if p != n_pieces - 1: # if we aren't on the last piece:
-
-                next_piece = sets[p+1]
-                sequence[n_cols :] = next_piece[s][0 : k-1]  # surplus
-            else:
-
-                sequence[n_cols :] = 'Z' # TODO: possivelmente substituir por valor mais provavel
-
-            shingled_sequence = split_into_shingles(sequence, k=k)
-            assert len(shingled_sequence) == n_shingle_elements, \
-                'Shingled sequence: ' + str(len(shingled_sequence)) + ' and fixed len ' + str(n_shingle_elements)
-
-            # print 'Seq len', len(sequence)
-            # print 'Len', len(shingled_sequence), 'Seq', shingled_sequence
-            # print 'Shingle len', len(shingles[p][shingles_idx : shingles_idx + n_cols + 1])
-            # shingles[p][:, shingles_idx: shingles_idx + len(sequence) - 1] = shingled_sequence
-            print shingles_idx + n_cols
-
-            # shingles[p][shingles_idx : shingles_idx + n_shingle_elements] = shingled_sequence
-            shingles[shingles_idx: shingles_idx + n_shingle_elements] = shingled_sequence
-            shingles_idx += n_shingle_elements
-
-        for word in shingles:
-            minhash.update(word)
-
-        minhashes.append(minhash)
-        shingles_idx = 0
-
-        # shingle_str = [''.join(s) for s in shingles[piece].astype(str)]
-        #for s in shingles[piece]:
-        #    minhash.update(s.encode('utf-8'))
-
-    assert len(minhashes) == n_pieces
-    print shingles
-
-    distance_matrix = np.empty((n_pieces, n_pieces), dtype=np.float)
-
-    for i in range(0, len(minhashes)):
-        for j in range(0, len(minhashes)):
-
-            if i == j:
-                distance_matrix[i][j] = 0
-            else:
-
-                similarity = minhashes[i].jaccard(minhashes[j])
-
-                if similarity == 0:
-                    distance_matrix[i][j] = 1
-                else:
-                    distance_matrix[i][j] = 1 / similarity
-
-    print distance_matrix
-
-    from scipy.cluster.hierarchy import dendrogram
-    from scipy.cluster.hierarchy import fcluster, linkage
-
-    Z = linkage(distance_matrix)
-
-    import matplotlib.pyplot as plt
-    dendrogram(Z, show_leaf_counts=True)
-
-    plt.show()
-
-    return fcluster(Z, 0.3)
-
-
-# splits a given sequence from an MSA with alphabet {'A','G','C','T','-'} into shingles
-# this technique is based on the k-shingles approach used in document matching algorithms
-def split_into_shingles(sequence, k=2):
-
-    length = len(sequence)
-    if k < 1 or k > length:
-        print 'Invalid parameter k ', k, ' for sequence length ', length
-        return None
-
-    # tokenizer
-    n_shingles = length - k + 1  # experimental value !!
-
-    shingles = np.zeros((n_shingles, ), dtype="S" + str(k))
-
-    i = 0
-    while length - i >= k:
-
-        for s in sequence[i : i + k]:
-            shingles[i] += s
-        # shingles[i] = [''.join(s) for s in sequence[i : i + k].astype(str)]
-        i += 1
-
-    print shingles
-    return shingles
-
+    calc_jaccard_similarities(alignment, k=k)
+    calc_jaccard_similarities(tokenized_score[:, 0], k=k)
+    calc_jaccard_similarities(tokenized_score[:, 1], k=k)
 
 
 if __name__ == "__main__":
@@ -1347,7 +1102,7 @@ if __name__ == "__main__":
     msa = np.array([[y for y in x] for x in msa])
 
 
-    """piece_length = 5000
+    piece_length = 5000
 
     pieces = []
 

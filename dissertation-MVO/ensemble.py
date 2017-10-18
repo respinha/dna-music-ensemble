@@ -10,7 +10,7 @@ from Bio.Align import MultipleSeqAlignment
 
 from Bio.Phylo.TreeConstruction import DistanceCalculator, DistanceTreeConstructor
 
-from music21 import instrument, note, harmony, interval, key, duration, stream
+from music21 import instrument, note, stream, scale
 from music21.instrument import StringInstrument, WoodwindInstrument, BrassInstrument, Percussion, PitchedPercussion
 from music21 import midi
 
@@ -30,7 +30,7 @@ class Composer(object):
 
     def __init__(self, cluster_algorithm, pitch_algorithm,
                  duration_algorithm, dynamics_algorithm,
-                 input_type=None, **kwargs):
+                 input_type='alignment', **kwargs):
 
         assert isinstance(cluster_algorithm, ClusteringAlgorithm) \
                and isinstance(pitch_algorithm, PitchAlgorithm) \
@@ -38,7 +38,7 @@ class Composer(object):
                and isinstance(dynamics_algorithm, DynamicsAlgorithm)\
                and input_type
 
-        if input_type == 'alignment':
+        if input_type in ['alignment', 'array']:
 
             assert 'alignment' in kwargs.keys()
             self.alignment = kwargs['alignment']
@@ -75,21 +75,14 @@ class Composer(object):
         self.pitch_algorithm = pitch_algorithm
         self.dynamics_algorithm = dynamics_algorithm
 
-    def assign_instruments(self, msa):
+    def assign_instruments(self):
 
-        assert isinstance(msa, MultipleSeqAlignment)
+        # assert isinstance(self.alignment, MultipleSeqAlignment)
+        return [instrument.Vibraphone(), instrument.Marimba(), instrument.Glockenspiel(), instrument.Marimba()]
 
-        # return [instrument.Glockenspiel(), instrument.SleighBells(), instrument.Gong(), instrument.Marimba()]
-        return [instrument.Vibraphone(), instrument.Glockenspiel(), instrument.Marimba(), instrument.Marimba()]
-        """instr = []
-        for i in range(0, 4):
-            instr.append(instrument.Vibraphone())
+    def gen_numerical_vectors(self, k=2, piece_length=5):
 
-        return instr"""
-
-    def gen_numerical_vectors(self):
-
-        msa = AlignIO.read(self.alignment, 'clustal')
+        msa = AlignIO.read(self.alignment, 'clustal') if not isinstance(self.alignment, np.ndarray) else self.alignment
 
         window_sizes = np.zeros(3)
         if 'windows_size' in self.dynamics_algorithm.keys():
@@ -110,11 +103,9 @@ class Composer(object):
         from api import gen_song
 
         # TODO: insert clustering/instrument assigning algorithm
-        instruments = self.assign_instruments(msa)
+        instruments = self.assign_instruments()[0:len(msa)]
 
-        # todo: for now, only one score; divide in multiple pieces
-        # in that case, song should be an array of scores
-        songs = gen_song(self.pitch_algorithm, self.durations_algorithm, self.dynamics_algorithm, msa, instruments)
+        songs = gen_song(self.pitch_algorithm, self.durations_algorithm, self.dynamics_algorithm, msa, instruments, k, piece_length=piece_length)
 
         assert isinstance(songs, list)
         return songs
@@ -138,13 +129,13 @@ class FileWriter(object):
 
         assert isinstance(score, stream.Score) and isinstance(records, np.ndarray)
 
-        print score.parts, records
+        print(score.parts, records)
         assert len(score.parts) == len(records), str(len(score.parts)) + ' ' + str(len(records))
 
     def write(self, name='alignment', display=False, stats=None, **kwargs):
 
         if len(kwargs.keys()) == 0:
-            print 'No output type or path specified'
+            print('No output type or path specified')
             sys.exit(1)
 
         if os.path.isdir(name):
@@ -154,12 +145,12 @@ class FileWriter(object):
         # parsing arguments
         for key, value in kwargs.items():
 
-            print type(value)
+            print(type(value))
             # assert isinstance(value, str)
 
             if key == 'midi':
 
-                print 'Writing midi...'
+                print('Writing midi...')
 
                 if not value.endswith('.mid'):
                     value += '.mid'
@@ -171,7 +162,7 @@ class FileWriter(object):
 
                 f = midi.translate.streamToMidiFile(self.score)
 
-                print 'Output MIDI', output_midi
+                print('Output MIDI', output_midi)
 
                 f.open(output_midi, attrib='wb')
                 f.write()
@@ -185,7 +176,7 @@ class FileWriter(object):
 
             elif key == 'score':
 
-                print 'Writing score...'
+                print('Writing score...')
 
                 # lily already inserts extension in filename
                 value = value[:-4] if value.endswith('.pdf') else value
@@ -198,14 +189,14 @@ class FileWriter(object):
                     os.unlink(to_unlink)
 
             if display:
-                print 'Displaying score...'
+                print('Displaying score...')
                 self.score.show(app=GLOBALS['MUSE_SCORE'])
 
             if stats:
 
                 assert isinstance(stats, str), 'Invalid path for stats file'
 
-                print 'Generating pitch and duration histograms...'
+                print('Generating pitch and duration histograms...')
 
                 hist_durations_dir = GLOBALS['HIST_DURATIONS']
                 if not os.path.isdir(hist_durations_dir):
@@ -224,8 +215,8 @@ class FileWriter(object):
 
                     durations = durations_notes['durations']  # first column
 
-                    print 'Durations', durations
-                    print 'Durations set', np.unique(durations)
+                    print('Durations', durations)
+                    print('Durations set', np.unique(durations))
                     notes = durations_notes['notes']
 
                     plt.hist(durations, color='b')
@@ -250,7 +241,7 @@ class FileWriter(object):
                     i += 1
 
 # TODO:
-# check if test file with results already exists
+# check if test file with results already exist  2 mins
 # if not:
 #   test BioPython
 #   test music21
@@ -267,11 +258,55 @@ def run():
 
     #### config_environment() ####
 
-    aln_file = SEQ_DIR + '/clustal3.aln'
+    # test vectors
+    # hand-made file
+    # piece-length = 15
+    # window = 5
+
+    msa = np.array(
+        [
+            ['AAAAAAAAAAAAAAAAAAAACCCCCCCCCCCCCCCACGCTGTCAA'],
+            ['AAAAAAAAAAAAAAAAAAAACCCCCCCCCCCCCCCAGCATCTCAG'],
+            ['AAACGAAACGAAACGAAACGCCCCCCCCCCCCCCCCAGCAGTCAA'],
+            ['AAATCAAATCAAATCAAATCCCCCCCCCCCCCCCCTTAGCGCTTA']
+        ]
+    )
+
+    aln = np.empty((len(msa), len(list(msa[0])[0])), dtype="S1")
+
+    for i in range(0, len(msa)):
+
+        seq = list(msa[i])[0]
+        for j in range(0, len(seq)):
+            aln[i][j] = seq[j]
+
+    msa = aln
+
+    pitch_algo = PitchAlgorithm(PitchAlgorithm.WORD_DISTANCES, scale=scale.MajorScale().getPitches(), n_nucleotides=1)
+    durations_algo = DurationsAlgorithm(DurationsAlgorithm.FREQUENCIES_DYNAMIC, window_size=2, window_duration=10, n_nucleotides=1)
+    dynamics_algo = DynamicsAlgorithm(DynamicsAlgorithm.SHANNON_INDEX, window_size=2, gap_window_threshold=0.5, gap_column_threshold=0.7, criteria='local', levels=7)
+    instruments_algo = ClusteringAlgorithm('kmeans')
+
+    composer = Composer(instruments_algo, pitch_algo, durations_algo, dynamics_algo, input_type='array',
+                        alignment=msa)
+
+    sequence_names = np.array([str(i) for i in range(0, len(msa))])
+
+    i = 0
+
+    scores = composer.gen_numerical_vectors(k=2)
+    for score in scores:
+        fw = FileWriter(score, sequence_names)
+        fname = 'hardcoded_test_' + str(i)
+
+        print('fname', fname)
+        fw.write(midi=fname, audio=fname, display=False)
+        i += 1
+
+    """aln_file = SEQ_DIR + '/clustal3.aln'
 
     from music21 import scale
 
-    print scale.MajorScale().getPitches()
     pitch_algo = PitchAlgorithm(PitchAlgorithm.WORD_DISTANCES, scale=scale.MajorScale().getPitches(), n_nucleotides=2)
     durations_algo = DurationsAlgorithm(DurationsAlgorithm.FREQUENCIES_DYNAMIC, window_size=1000, window_duration=500, n_nucleotides=2)
     dynamics_algo = DynamicsAlgorithm(DynamicsAlgorithm.SHANNON_INDEX, window_size=2500, gap_window_threshold=0.5, gap_column_threshold=0.7, criteria='local', levels=7)
@@ -279,7 +314,6 @@ def run():
     instruments_algo = ClusteringAlgorithm('kmeans')
 
     composer = Composer(instruments_algo, pitch_algo, durations_algo, dynamics_algo, input_type='alignment', alignment=aln_file)
-    scores = composer.gen_numerical_vectors()
 
     msa = AlignIO.read(aln_file, 'clustal')
     sequences = np.chararray(len(msa), itemsize=25)
@@ -291,27 +325,33 @@ def run():
 
     i = 0
 
-    for score in scores:
+    for k in range(2, 7):
 
-        fw = FileWriter(score, sequences)
-        fname = 'test_fast_' + str(i)
+        scores = composer.gen_numerical_vectors(k=k)
 
-        print 'fname', fname
-        fw.write(midi=fname, audio=fname, display=False)
-        i += 1
+        for score in scores:
 
-    print 'Done'
+            fw = FileWriter(score, sequences)
+            fname = 'test_fast_' + str(i) + "_" + str(k)
 
-import multiprocessing
-import time
+            print 'fname', fname
+            fw.write(midi=fname, audio=fname, display=False)
+            i += 1"""
 
-p = multiprocessing.Process(target=run, name="Run", args=())
-p.start()
+    print('Done')
 
-print 'Started!'
-time.sleep(10 * 60)
+if __name__ == "__main__":
+    
+    import multiprocessing
+    import time
 
-if p.is_alive():
-    print 'Early kill'
-    p.terminate()
-    p.join()
+    p = multiprocessing.Process(target=run, name="Run", args=())
+    p.start()
+
+    print('Started!')
+    time.sleep(20 * 60)
+
+    if p.is_alive():
+        print('Early kill')
+        p.terminate()
+        p.join()

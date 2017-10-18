@@ -38,7 +38,7 @@ class Algorithm(dict):
 # supported types: [ dummy, discrete_sync, patternized ]
 class DurationsAlgorithm(Algorithm):
 
-    valid_algorithms = ['frequencies_discrete', 'frequencies_dynamic']
+    valid_algorithms = ['frequencies_discrete', 'frequencies_dynamic', 'word_distances']
     valid_params = ['window_size', 'window_duration', 'n_nucleotides']
 
     FREQUENCIES_DYNAMIC = 'frequencies_dynamic'
@@ -83,7 +83,6 @@ class PitchAlgorithm(Algorithm):
 
                 if key == 'scale':
 
-                    # assert isinstance(value, list) or isinstance(value, np.ndarray) or is todo: rever estrutura a usar
                     assert isinstance(value, scale.Scale) or isinstance(value, list)
                 else:
                     assert isinstance(value, int)
