@@ -259,7 +259,7 @@ def get_clusters_from_alignment(msa, **kwargs):
             else:
                 
                 instruments_pool = PitchedPercussion.__subclasses__()
-                shuffle(instruments_pool)
+                random.shuffle(instruments_pool)
                 instruments_pool = instruments_pool[:nclusters]
 
                 i = 0
@@ -937,6 +937,7 @@ def gen_song(pitch_algorithm, durations_algorithm, dynamics_algorithm, alignment
     sim = SimHandler(split_alignment, k=k_shingles)
     clusters = sim.cluster_by_similarites()
 
+    print('Clusters', clusters)
     tempos = np.arange(45, 160, (160 - 45) / len(clusters))
     tempos_vector = sim.assign_tempos_by_clusters(clusters, tempos)
 
@@ -962,7 +963,7 @@ def gen_song(pitch_algorithm, durations_algorithm, dynamics_algorithm, alignment
 
         regions_file = open('regions_' + str(piece_idx) + '.txt', 'wra')
         for i in range(0, alignment.shape[0]):
-            regions_file.write(np.array_str(subsequence[i]))
+            regions_file.write(''.join(subsequence[i]) + '\n')
             gen_stream(score, subsequence[i], pitch_algorithm, durations_algorithm, instruments[i])
 
         print 'Checking if parts have the same total duration...'
@@ -1001,6 +1002,7 @@ def gen_song(pitch_algorithm, durations_algorithm, dynamics_algorithm, alignment
 
         scores.append(score)
 
+        regions_file.write('\n\nTempo: ' + str(tempos_vector[piece_idx]))
         piece_idx += 1
 
     """print similarities_df
@@ -1045,7 +1047,7 @@ def gen_random_seqs(n, MAX, filename):
     SeqIO.write(short_version[:n], filename, 'fasta')
 
 ###### SIMILARITIES ############
-
+""""
 # score tokenizer
 def tokenize_score(score):
     assert isinstance(score, stream.Stream)  # && len(score.parts) <= 1
@@ -1094,7 +1096,9 @@ def get_sequence_similarities(alignment, score, k=2, n=1):
     calc_jaccard_similarities(alignment, k=k)
     calc_jaccard_similarities(tokenized_score[:, 0], k=k)
     calc_jaccard_similarities(tokenized_score[:, 1], k=k)
-
+"""
+def serialize(file, seq):
+    file.write(''.join(seq) + '\n')
 
 if __name__ == "__main__":
 
@@ -1120,7 +1124,7 @@ if __name__ == "__main__":
 
     print 'K =', k
 
-    for p in range(5000, len(msa[0]), 5000):
+    """for p in range(5000, len(msa[0]), 5000):
 
         piece_length = 5000 if msa.shape[1] - p >= 5000 else msa.shape[1] - p
 

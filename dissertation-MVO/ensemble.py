@@ -67,7 +67,7 @@ class Composer(object):
             else:
                 seq_vector = kwargs['seq_vector']
 
-            from api import gen_alignment
+            from core import gen_alignment
             self.alignment = gen_alignment(seq_file, seq_vector=seq_vector, n_sequences=n_seq, algorithm=aln_algorithm)
 
         self.clustering_algorithm = cluster_algorithm
@@ -100,7 +100,7 @@ class Composer(object):
 
         assert window_sizes_are_valid, 'Window sizes cannot differ in algorithm mappings'
 
-        from api import gen_song
+        from core import gen_song
 
         # TODO: insert clustering/instrument assigning algorithm
         instruments = self.assign_instruments()[0:len(msa)]
@@ -146,7 +146,6 @@ class FileWriter(object):
         for key, value in kwargs.items():
 
             print(type(value))
-            # assert isinstance(value, str)
 
             if key == 'midi':
 

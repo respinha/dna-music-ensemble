@@ -65,7 +65,7 @@ class SimHandler(object):
                 assert len(shingled_sequence) == n_shingle_elements, \
                     'Shingled sequence: ' + str(len(shingled_sequence)) + ' and fixed len ' + str(n_shingle_elements)
 
-                print shingles_idx + n_cols
+                # print shingles_idx + n_cols
 
                 shingles[shingles_idx: shingles_idx + n_shingle_elements] = shingled_sequence
                 shingles_idx += n_shingle_elements
@@ -77,7 +77,7 @@ class SimHandler(object):
             shingles_idx = 0
 
         assert len(minhashes) == n_pieces
-        print(shingles)
+        # print(shingles)
 
         distance_matrix = np.empty((n_pieces, n_pieces), dtype=np.float)
 
@@ -127,7 +127,7 @@ class SimHandler(object):
 
             i += 1
 
-        print shingles
+        # print shingles
         return shingles
 
     def assign_tempos_by_clusters(self, fclusters, tempo_vector):
