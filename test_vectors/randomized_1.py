@@ -3,51 +3,63 @@ from algorithms import PitchAlgorithm, DurationsAlgorithm, DynamicsAlgorithm, Cl
 from music21 import scale
 import numpy as np
 
+print('### Tests ###\n\n')
+print('Test 1\n')
+
 
 def run():
+    msa = np.zeros((2, 200), dtype="S1")
 
-    alphabet = ['a','c','g','t','-']
+    #msa[0] = np.zeros(200, dtype="S1")
+    msa[0] = np.random.choice(['a','g','c','t','-'], 200)
+    print(msa[0])
 
-    np.random.choice(alphabet, 50, p=[0.5, 0.1, 0.1, 0.3])
-    msa = np.zeros((2,200), dtype="S1")
+    msa[1] = np.random.choice(['a','g','c','t','-'], 200)
+    print(msa[1])
 
-    msa[0] = np.zeros(200, dtype="S1")
+    error_log = open('test_vectors/error_log_test2.txt', 'wr')
 
-    msa[0][0:50] = 'a'
-    msa[0][50:75] = 'c'
-    msa[0][75:150] = '-'
-    msa[0][150:175] = 'g'
-    msa[0][150:200] = '-'
+    for window_size in range(5, 30, 5):
+        for window_duration in range(5, 60, 5):
+            for n_nucleotides in range(1, 2):
+                try:
+                    subdir = 'demo2_' + str(window_size) + '_' + str(window_duration) + '_' + str(n_nucleotides)
 
-    print('MSA 0', msa[0])
-    msa[1][0:25] = 'a'
-    msa[1][25:100] = 'c'
-    msa[1][100:175] = 'g'
-    msa[1][175:200] = 'a'
+                    pitch_algo = PitchAlgorithm(PitchAlgorithm.WORD_DISTANCES, scale=scale.MinorScale().getPitches(),
+                                                n_nucleotides=1)
+                    durations_algo = DurationsAlgorithm(DurationsAlgorithm.FREQUENCIES_DYNAMIC, window_size=window_size,
+                                                        window_duration=window_duration, n_nucleotides=1)
+                    dynamics_algo = DynamicsAlgorithm(DynamicsAlgorithm.SHANNON_INDEX, window_size=window_size,
+                                                      gap_window_threshold=0.5, gap_column_threshold=0.7,
+                                                      criteria='local', levels=7)
+                    instruments_algo = ClusteringAlgorithm('kmeans')
 
-    print('MSA 1', msa[1])
+                    composer = Composer(instruments_algo, pitch_algo, durations_algo, dynamics_algo, input_type='array',
+                                        alignment=msa)
 
-    pitch_algo = PitchAlgorithm(PitchAlgorithm.WORD_DISTANCES, scale=scale.MajorScale().getPitches(), n_nucleotides=1)
-    durations_algo = DurationsAlgorithm(DurationsAlgorithm.FREQUENCIES_DYNAMIC, window_size=10, window_duration=10, n_nucleotides=1)
-    dynamics_algo = DynamicsAlgorithm(DynamicsAlgorithm.SHANNON_INDEX, window_size=10, gap_window_threshold=0.5, gap_column_threshold=0.7, criteria='local', levels=7)
-    instruments_algo = ClusteringAlgorithm('kmeans')
+                    sequence_names = np.array([str(i) for i in range(0, len(msa))])
 
+                    i = 0
 
-    composer = Composer(instruments_algo, pitch_algo, durations_algo, dynamics_algo, input_type='array',
-                        alignment=msa)
+                    scores = composer.gen_numerical_vectors(k=2, piece_length=window_size * 2)
 
-    sequence_names = np.array([str(i) for i in range(0, len(msa))])
+                    print 'Parameters ' + str(window_size) + ' ' + str(window_duration) + ' ' + str(n_nucleotides)
+                    print 'Number of scores', len(scores)
+                    for score in scores:
+                        fw = FileWriter(score, sequence_names)
+                        fname = 'demo_' + str(i)
 
-    i = 0
+                        print('fname', fname)
+                        fw.write(midi=fname, audio=fname, display=False, subdir=subdir)
+                        i += 1
+                        print('After writing', fname)
 
-    scores = composer.gen_numerical_vectors(k=2, piece_length=20)
-    for score in scores:
-        fw = FileWriter(score, sequence_names)
-        fname = 'demo_' + str(i)
+                except Exception as e:
+                    print 'Error ocurred! Please check log!'
+                    error_log.write('Error occurred with windows_size = ' + str(window_size) + \
+                                    ' & window_duration = ' + str(window_duration) + ' & n_nucleotides = ' + str(
+                        n_nucleotides) + e.message + '\n')
 
-        print('fname', fname)
-        fw.write(midi=fname, audio=fname, display=False)
-        i += 1
 
 if __name__ == '__main__':
     run()

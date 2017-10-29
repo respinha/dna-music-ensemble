@@ -20,6 +20,7 @@ from algorithms import *
 
 import sys
 import os
+import shutil
 
 from config import GLOBALS, OUTPUT_FILES, SEQ_DIR
 
@@ -78,7 +79,7 @@ class Composer(object):
     def assign_instruments(self):
 
         # assert isinstance(self.alignment, MultipleSeqAlignment)
-        return [instrument.Vibraphone(), instrument.Marimba(), instrument.Glockenspiel(), instrument.Marimba()]
+        return [instrument.Timpani(), instrument.Glockenspiel(), instrument.Vibraphone(), instrument.Marimba()]
 
     def gen_numerical_vectors(self, k=2, piece_length=5):
 
@@ -138,9 +139,13 @@ class FileWriter(object):
             print('No output type or path specified')
             sys.exit(1)
 
-        if os.path.isdir(name):
-            os.rmdir(name)
-        os.mkdir(name)
+        if not os.path.isdir(name):
+            #shutil.rmtree(name)
+            os.mkdir(name)
+
+        subdir = None
+        if 'subdir' in kwargs.keys():
+            subdir = kwargs['subdir']
 
         # parsing arguments
         for key, value in kwargs.items():
@@ -157,7 +162,14 @@ class FileWriter(object):
                 if not os.path.isdir(GLOBALS['MIDI']):
                     os.mkdir(GLOBALS['MIDI'])
 
-                output_midi = GLOBALS['MIDI'] + '/' + value
+                output_midi = GLOBALS['MIDI'] + '/'
+                if subdir:
+                    #    shutil.rmtree(output_midi + subdir)
+                    output_midi += subdir + '/'
+                    if not os.path.isdir(output_midi):
+                        os.mkdir(output_midi)
+
+                output_midi += value
 
                 f = midi.translate.streamToMidiFile(self.score)
 
@@ -169,8 +181,10 @@ class FileWriter(object):
 
                 import subprocess
 
+                # currently audio can only be generated from MIDI input
                 if 'audio' in kwargs.keys():
-                    audio_name = value.split('.')[0] + '.ogg'
+                    audio_name = output_midi.split('.mid')[0] + '.ogg'
+                    print('AUDIO NAME', audio_name)
                     subprocess.call(["timidity", output_midi, "-Ow", "-o", audio_name])
 
             elif key == 'score':
@@ -180,7 +194,15 @@ class FileWriter(object):
                 # lily already inserts extension in filename
                 value = value[:-4] if value.endswith('.pdf') else value
 
-                self.score.write('lily.pdf', fp=GLOBALS['SCORES'] + '/' + value)
+                path = GLOBALS['SCORES'] + '/'
+                if subdir:
+                    #    shutil.rmtree(path + subdir)
+                    path += subdir + '/'
+                    if os.path.isdir(path):
+                        os.mkdir(path)
+
+                path += value
+                self.score.write('lily.pdf', fp=path)
 
                 # deleting tmp file created by lily without .pdf extension
                 to_unlink = GLOBALS['SCORES'] + '/' + value

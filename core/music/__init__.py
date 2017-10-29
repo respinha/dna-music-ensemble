@@ -38,10 +38,15 @@ def gen_dynamics_vector(msa, dynamics_algorithm):
 
     window = dynamics_algorithm['window_size']
 
-    if 'gap_threshold' not in dynamics_algorithm.keys():
-        gap_threshold = 0.7
+    if 'gap_column_threshold' not in dynamics_algorithm.keys():
+        gap_column_threshold = 0.7
     else:
-        gap_threshold = dynamics_algorithm['gap_threshold']
+        gap_column_threshold = dynamics_algorithm['gap_column_threshold']
+
+    if 'gap_window_threshold' not in dynamics_algorithm.keys():
+        gap_window_threshold = 0.7
+    else:
+        gap_window_threshold = dynamics_algorithm['gap_window_threshold']
 
     if 'criteria' not in dynamics_algorithm.keys():
         criteria = 'local'
@@ -57,7 +62,6 @@ def gen_dynamics_vector(msa, dynamics_algorithm):
 
     from math import ceil
 
-    print 'Window', window, 'aln_len', aln_len
     n_windows = np.int(ceil(float(aln_len) / window))
 
     gaps_below_thresh = np.zeros(n_windows, dtype=np.bool)
@@ -69,55 +73,58 @@ def gen_dynamics_vector(msa, dynamics_algorithm):
     # below the established threshold
     for i in range(0, aln_len, window):
 
-        if i + window > aln_len: window = aln_len - i
+        boundary = window \
+            if i + window <= aln_len \
+            else aln_len - i
 
-        local_is_below_threshold = np.zeros((window,), dtype=np.bool)
-        for j in range(i, i + window):
+        local_is_below_threshold = np.zeros((boundary,), dtype=np.bool)
+
+        for j in range(i, i + boundary):
 
             column = np.array([c for c in msa[:, j]])
 
             n_gaps = np.count_nonzero(column == '-')
 
-            if float(n_gaps) / len(column) < gap_threshold:
+            if float(n_gaps) / len(column) < gap_column_threshold:
                 local_is_below_threshold[j - i] = True
 
         n_ungapped_regions = len(np.where(local_is_below_threshold)[0])
-
-        if n_ungapped_regions < gap_threshold * window:
+        print 'N ungapped regions', n_ungapped_regions, gap_window_threshold * boundary
+        if n_ungapped_regions >= gap_window_threshold * boundary:
             gaps_below_thresh[window_idx] = True
-
         window_idx += 1
+
+    #print('Gaps below thresh', gaps_below_thresh)
 
     from scipy.stats import entropy
 
-    # dynamics_vector = np.zeros((n_windows,),
     dynamics_vector = np.zeros((n_windows,),
                                dtype=[('entropy', np.float), ('vol', np.float)])
-
     entropies_idx = 0
 
     for i in range(0, aln_len, window):
-
-        if i + window > aln_len: window = aln_len - i
+        boundary = window \
+            if i + window <= aln_len \
+            else aln_len - i
 
         # if this window has a percentage of gaps
         # above the considered threshold
         if not gaps_below_thresh[entropies_idx]:
             dynamics_vector['entropy'][entropies_idx] = -1
+            entropies_idx += 1
             continue
 
-        local_entropy = np.zeros((window,))
+        local_entropy = np.zeros((boundary,))
 
-        for j in range(i, i + window):
+        for j in range(i, i + boundary):
 
             column = msa[:, j]
-
             column_symbols = column[np.where(column != '-')]
 
-            if len(column_symbols) < (1 - gap_threshold) * len(column):
-
-                # apply thresholding +
-                pass
+            if len(column_symbols) < (1 - gap_column_threshold) * len(column):
+                # apply thresholding
+                #pass
+                local_entropy[j - i] = 0
             else:
                 # Shannon entropy of all column symbols
                 counts = itemfreq(column_symbols)
@@ -147,14 +154,13 @@ def gen_dynamics_vector(msa, dynamics_algorithm):
     split_info = np.array_split(np.sort(np.unique(entropies)), levels)  # splitting info into classes
     volumes = np.linspace(min_vol, max_vol, num=levels)  # vector with all possible volumes
 
-    print 'N_WINDOWS', n_windows
     for i in range(0, int(n_windows)):
 
-        for j in range(0, len(split_info)):
-            if entropies[i] == -1:
-                dynamics_vector['vol'][i] = -1
-            elif entropies[i] <= split_info[j][-1]:
+        if entropies[i] == -1:
+            dynamics_vector['vol'][i] = -1
 
+        for j in range(0, len(split_info)):
+            if entropies[i] <= split_info[j][-1]:
                 dynamics_vector['vol'][i] = volumes[j]
                 break
 
@@ -162,12 +168,12 @@ def gen_dynamics_vector(msa, dynamics_algorithm):
 
 
 def add_dynamics_to_score(dynamics_vector, score, window_size, instruments, max_rest_tempo=3):
+
     # consistency check
     assert isinstance(score, stream.Score) and isinstance(dynamics_vector, np.ndarray)
     assert len(instruments) == len(score.parts)
     assert all(isinstance(i, instrument.Instrument) for i in instruments)
 
-    vol_idx = 0
     score_tempo = score.getElementsByClass(tempo.MetronomeMark)[0]
 
     # creating filtered score
@@ -177,8 +183,9 @@ def add_dynamics_to_score(dynamics_vector, score, window_size, instruments, max_
 
     for p in range(0, len(score.parts)):
 
-        if len(score.parts[p]) < length:
-            length = len(score.parts[p])
+        part_len = len(score.parts[p]) - 1 # excluding instrument elem!!
+        if part_len < length:
+            length = part_len
 
         part = stream.Part()
         part.insert(0, score_tempo)
@@ -187,13 +194,12 @@ def add_dynamics_to_score(dynamics_vector, score, window_size, instruments, max_
         final_score.append(part)
 
     # iterating through a music score in chunks of 'window_size' length
+    vol_idx = 0
 
     for i in range(0, length, window_size):
-        window_size = length - i if i + window_size > length else window_size
+        boundary = window_size if i + window_size <= length else length - i
 
-        print 'len', length, 'window_size', window_size
-
-        if dynamics_vector[vol_idx] <= 0:
+        if dynamics_vector[vol_idx] <= 0: # silence
             r = note.Rest()
 
             for part in final_score.parts:
@@ -208,7 +214,7 @@ def add_dynamics_to_score(dynamics_vector, score, window_size, instruments, max_
                 final_part = final_score.parts[j]
                 part = score.parts[j]
 
-                for k in range(i, i + window_size):
+                for k in range(i, i + boundary):
 
                     n = part[k]
                     if isinstance(n, note.GeneralNote):  # if Note or Rest
@@ -325,7 +331,7 @@ def gen_pitch_duration_vectors(sequence, pitch_algorithm, durations_algorithm):
 
             counts_sum = 0
 
-            # for j in range(i, boundary):
+            # for j in range(i, bounverifiyingdary):
             for j in range(0, len(subset)):
                 counts_sum += int(counts[subset[j]])
 
@@ -582,7 +588,6 @@ def gen_stream(score, sequence, pitch_algorithm, durations_algorithm, assigned_i
                 n.duration = duration.Duration(d)
 
             else:
-                print('Assigning a REST')
                 n = note.Rest()
                 n.duration = duration.Duration(d)
 
@@ -592,10 +597,9 @@ def gen_stream(score, sequence, pitch_algorithm, durations_algorithm, assigned_i
 
             part.append(n)
 
-    print 'Inserting part on score', len(part)
-    print 'SYMBOLS', symbols
+    print('Inserting part on score', len(part))
     score.insert(0, part)
-    print 'Done'
+    print('Done')
 
 
 def gen_song(pitch_algorithm, durations_algorithm, dynamics_algorithm, alignment, instruments, k_shingles,
@@ -628,13 +632,12 @@ def gen_song(pitch_algorithm, durations_algorithm, dynamics_algorithm, alignment
 
     from core.music.similarity import SimHandler
 
-    split_len = int(alignment.shape[1] / piece_length) if alignment.shape[1] % piece_length == 0 else int(
-        alignment.shape[1] / piece_length) + 1
+    split_len = int(alignment.shape[1] / piece_length) \
+        if alignment.shape[1] % piece_length == 0 \
+        else int(alignment.shape[1] / piece_length) + 1
 
     split_alignment = np.array_split(alignment, split_len, axis=1)
 
-    # print 'N_TEMPOS', len(split_alignment), split_alignment[0].shape[0]
-    # sys.exit(1)
     sim = SimHandler(split_alignment, k=k_shingles)
     clusters = sim.cluster_by_similarites()
 
@@ -662,9 +665,19 @@ def gen_song(pitch_algorithm, durations_algorithm, dynamics_algorithm, alignment
 
         subsequence = alignment[:, p: p + piece_length]
 
-        regions_file = open('regions_' + str(piece_idx) + '.txt', 'wra')
+        regions_file_path = 'regions_' + str(piece_idx) + '.txt'
+
+        if not os.path.isdir(GLOBALS['REGIONS_DIR']):
+            os.mkdir(GLOBALS['REGIONS_DIR'])
+
+        if not 'DIR' in os.environ.keys(): os.environ['DIR'] = 'default'
+        if not os.path.isdir(GLOBALS['REGIONS_DIR'] + '/' + os.environ['DIR']):
+            os.mkdir(GLOBALS['REGIONS_DIR'] + '/' + os.environ['DIR'])
+
+        regions_file_path = GLOBALS['REGIONS_DIR'] + '/' + os.environ['DIR'] + '/' + regions_file_path
+        regions_file = open(regions_file_path, 'wr')
+
         for i in range(0, alignment.shape[0]):
-            print('Subsequence ', str(i), 'from piece idx', str(piece_idx), 'with len', str(len(subsequence[i])), subsequence[i], len(''.join(subsequence[i])))
             regions_file.write(''.join(subsequence[i]) + '\n')
             gen_stream(score, subsequence[i], pitch_algorithm, durations_algorithm, instruments[i])
 
@@ -703,9 +716,20 @@ def gen_song(pitch_algorithm, durations_algorithm, dynamics_algorithm, alignment
         print 'VOLUMES', dynamics_vector
         window_size = dynamics_algorithm['window_size']
 
+        score = add_dynamics_to_score(volumes, score, window_size, instruments)
+
+        print 'Dynamics to score'
+        """for part in new_score:
+            elems = ''
+            for y in range(2, len(part)):
+                elems += str(part[y].volume) + ' '
+            print elems
+        sys.exit(1)"""""
         scores.append(score)
 
         regions_file.write('\n\nTempo: ' + str(tempos_vector[piece_idx]))
+        regions_file.close()
+
         piece_idx += 1
 
     """print similarities_df
@@ -727,21 +751,36 @@ def gen_song(pitch_algorithm, durations_algorithm, dynamics_algorithm, alignment
     # parte estatistica e output de ficheiros para @FileWriter
     # retornar score, utilizar dynamics_algorithm, adicionar volumes a score e analisar score
     return scores
-"""
+
+"""""""""
 if __name__ == "__main__":
-    msa = AlignIO.read('output.fasta', 'clustal')
+    from config import CURR_DIR
+    msa = AlignIO.read(CURR_DIR + '/output.fasta', 'clustal')
     msa = np.array([[y for y in x] for x in msa])
 
+    window_size = 1500
     piece_length = 5000
 
-    pieces = []
+    dynamics_algorithm = DynamicsAlgorithm(DynamicsAlgorithm.SHANNON_INDEX, window_size=window_size,
+                                      gap_window_threshold=0.5, gap_column_threshold=0.5, criteria='local', levels=7)
+
+    split_len = int(msa.shape[1] / piece_length) \
+        if msa.shape[1] % piece_length == 0 \
+        else int(msa.shape[1] / piece_length) + 1
+
+    split_alignment = np.array_split(msa, split_len, axis=1)
+
+    for piece in split_alignment:
+        gen_dynamics_vector(piece, dynamics_algorithm)
+    print('Number of pieces', int(np.ceil(float(msa.shape[1]) / 5000)))
+
+    #gen_dynamics_vector(msa, dynamics_algorithm=dynamics_algorithm)
+
 
     pitch_algorithm = PitchAlgorithm(PitchAlgorithm.WORD_DISTANCES, scale_vector=scale.MajorScale(), n_nucleotides=1)
     durations_algorithm = DurationsAlgorithm(DurationsAlgorithm.FREQUENCIES_DYNAMIC, window_size=1000,
                                              window_duration=500,
                                              n_nucleotides=1)
-
-    print np.ceil(float(msa.shape[1]) / 5000)
 
     similarities_df = pd.DataFrame(np.empty(np.floor(float(msa.shape[1]) / 5000).astype(int),
                                             dtype=[('idx', np.uint8), ('jaccard', np.float), ('tempo', np.float)]))
@@ -793,4 +832,4 @@ if __name__ == "__main__":
         j += class_size
 
     print similarities_df.sort_values('idx')
-    # jaccard_indices['tempo'] = pd.Series(data=np.zeros(len(jaccard_indices['i'])))"""
+    # jaccard_indices['tempo'] = pd.Series(data=np.zeros(len(jaccard_indices['i'])))"""""

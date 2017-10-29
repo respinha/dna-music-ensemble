@@ -21,4 +21,6 @@ GLOBALS = {'MEME_URL' : 'http://meme-suite.org/opal2/services/MEME_4.11.2',
            'HIST_DURATIONS' :   OUTPUT_FILES + '/stats/durations',
             'HIST_NOTES' :   OUTPUT_FILES + '/stats/notes',
            'ALIGNMENT_PARAMS' : ['fasta_file', 'seq_vector', 'n_seq', 'algorithm'],
+           'TEST_VECTORS': CURR_DIR + '/test_vectors',
+           'REGIONS_DIR': OUTPUT_FILES + '/regions'
            }

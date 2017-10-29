@@ -94,7 +94,7 @@ class PitchAlgorithm(Algorithm):
 # supported types: [ 'gaps' ]
 class DynamicsAlgorithm(Algorithm):
 
-    valid_algorithms = ['shannon_index', 'simpson_index']
+    valid_algorithms = ['shannon_index']
     valid_params = ['window_size', 'gap_column_threshold', 'gap_window_threshold','criteria', 'levels']
 
     SHANNON_INDEX = 'shannon_index'
